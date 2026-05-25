@@ -1,0 +1,33 @@
+# Local source exports and generated outputs
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+*.download.xlsx
+logs/
+result/
+
+!data/
+!data/input/
+!data/input/raw/
+!data/input/raw/.gitkeep
+!data/input/template/
+!data/input/template/.gitkeep
+!data/output/
+!data/output/staging/
+!data/output/staging/.gitkeep
+!data/output/final/
+!data/output/final/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

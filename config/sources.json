@@ -1,0 +1,12 @@
+{
+  "IT": {
+    "url": "https://docs.google.com/spreadsheets/d/1xk2Bd95uXoOJAeBqkOSzV1wEo9peOF-e/edit?usp=sharing&ouid=111275165352399420864&rtpof=true&sd=true",
+    "file": "IT.xlsx",
+    "type": "matrix"
+  },
+  "MEDIA": {
+    "url": "https://docs.google.com/spreadsheets/d/17Eaj28S4nRgR1Iy6yKzkB7wo9XzS68aP/edit?gid=646344289#gid=646344289",
+    "file": "MEDIA.xlsx",
+    "type": "task_table"
+  }
+}
