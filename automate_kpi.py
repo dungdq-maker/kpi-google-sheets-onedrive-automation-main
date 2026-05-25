@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import csv
@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import sys
+import zipfile
 import urllib.request
 import unicodedata
 from copy import copy
@@ -18,6 +19,8 @@ from urllib.parse import parse_qs, urlparse
 from openpyxl import Workbook, load_workbook
 from openpyxl.formula.translate import Translator
 from openpyxl.utils import get_column_letter
+
+import merge_SX as sx_merge
 
 WORK_DIR = Path(__file__).parent
 
@@ -59,6 +62,10 @@ SHEET_PROJECT_CATALOG = "1.Danh mục dự án"
 SHEET_IT_CHECKING = "Checking Vốn hóa IT"
 SHEET_CAPITALIZATION = "3.Vốn hóa"
 SHEET_EMPLOYEE = "Mã nhân viên"
+SHEET_SX_TARGET = "Data SX ACCA+CMA"
+SHEET_SX_CHECKPOINT = "checkpoint data SX"
+SHEET_SX_DOWNSTREAM_CHECKPOINT = "Check_SX_Downstream"
+SHEET_SX_DOWNSTREAM_RESULT = "SX_Downstream_Approval_Result"
 
 PAYROLL_SOURCE_PATH = Path(r"C:\Users\admin\OneDrive\BCQT 2026\Vốn hóa chi phí nhân sự 2026.xlsx")
 PAYROLL_SHEETS = [SHEET_SALARY_FULLTIME, SHEET_SALARY_PARTTIME]
@@ -79,6 +86,29 @@ MEDIA_AUDIT_FIELDS = [
     "mnv",
 ]
 APPROVAL_YES_VALUES = {"yes", "y", "true", "1", "apply", "approved"}
+SX_TEMPLATE_ROW = 5
+SX_APPEND_BUFFER_ROWS = 500
+SX_ALLOWED_PROGRAMS = {"ACCA", "CMA", "CFA"}
+SX_PROGRAM_SOURCE_FILES = {
+    "ACCA": "ACCA.xlsx",
+    "CMA": "CMA.xlsx",
+    "CFA": "CFA.xlsx",
+}
+SX_TEMPLATE_COLUMN_MAP = {
+    1: 1,   # month
+    2: 2,   # program
+    3: 3,   # position
+    4: 4,   # employee
+    6: 6,   # product
+    7: 8,   # product type
+    8: 9,   # project
+    9: 10,  # department
+    10: 11, # feature
+    11: 12, # deliverable
+    12: 15, # unit
+    13: 16, # actual
+    14: 17, # KPI standard
+}
 
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -236,6 +266,1015 @@ def ensure_row_style(ws, template_row: int, target_row: int, max_col: int | None
             dst.protection = copy(src.protection)
 
 
+def row_has_any_value(ws, row: int, max_col: int | None = None) -> bool:
+    max_col = max_col or ws.max_column
+    # Use the internal cell map so probing empty rows does not create new cell objects.
+    for c in range(1, max_col + 1):
+        cell = ws._cells.get((row, c))
+        if cell is not None and clean(cell.value) is not None:
+            return True
+    return False
+
+
+def copy_row_style_and_formulas_only(ws, source_row: int, target_row: int, max_col: int | None = None) -> None:
+    max_col = max_col or ws.max_column
+    if target_row <= source_row:
+        return
+
+    ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
+    for c in range(1, max_col + 1):
+        src = ws.cell(source_row, c)
+        dst = ws.cell(target_row, c)
+        if src.has_style:
+            dst._style = copy(src._style)
+        if src.number_format:
+            dst.number_format = src.number_format
+        if src.font:
+            dst.font = copy(src.font)
+        if src.fill:
+            dst.fill = copy(src.fill)
+        if src.border:
+            dst.border = copy(src.border)
+        if src.alignment:
+            dst.alignment = copy(src.alignment)
+        if src.protection:
+            dst.protection = copy(src.protection)
+        if isinstance(src.value, str) and src.value.startswith("="):
+            dst.value = Translator(src.value, origin=src.coordinate).translate_formula(dst.coordinate)
+        else:
+            dst.value = None
+
+
+def find_sx_append_start_row(ws, template_row: int = SX_TEMPLATE_ROW, buffer_rows: int = SX_APPEND_BUFFER_ROWS) -> int:
+    last_data_row = template_row
+    for r in range(template_row, ws.max_row + 1):
+        if row_has_any_value(ws, r, 18):
+            last_data_row = r
+
+    candidate = last_data_row + 1
+    while candidate <= ws.max_row + buffer_rows + 1:
+        if all(not row_has_any_value(ws, r, 18) for r in range(candidate, candidate + buffer_rows)):
+            return candidate
+        candidate += 1
+    return last_data_row + 1
+
+
+def load_sx_staging_rows(sx_output: Path) -> list[dict[str, Any]]:
+    wb = load_workbook(sx_output, data_only=True)
+    ws = wb.active
+
+    rows: list[dict[str, Any]] = []
+    for r in range(2, ws.max_row + 1):
+        month = clean(ws.cell(r, 2).value)
+        program = clean(ws.cell(r, 3).value)
+        position = clean(ws.cell(r, 4).value)
+        employee = clean(ws.cell(r, 5).value)
+        product = clean(ws.cell(r, 6).value)
+        if not any([month, program, position, employee, product, ws.cell(r, 13).value, ws.cell(r, 14).value]):
+            continue
+        rows.append(
+            {
+                "year": clean(ws.cell(r, 1).value),
+                "month": month,
+                "program": program,
+                "position": position,
+                "employee": employee,
+                "product": product,
+                "product_type": clean(ws.cell(r, 7).value),
+                "project": clean(ws.cell(r, 8).value),
+                "department": clean(ws.cell(r, 9).value),
+                "feature": clean(ws.cell(r, 10).value),
+                "deliverable": clean(ws.cell(r, 11).value),
+                "unit": clean(ws.cell(r, 12).value),
+                "actual": ws.cell(r, 13).value,
+                "kpi_standard": ws.cell(r, 14).value,
+                "_source_row": r,
+            }
+        )
+
+    return rows
+
+
+def sx_row_value(row: dict[str, Any], *labels: str) -> Any:
+    wanted = {norm(label) for label in labels if label}
+    for key, value in row.items():
+        if norm(key) in wanted:
+            return value
+    return None
+
+
+def normalize_sx_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "year": sx_row_value(row, "Năm", "Year"),
+        "month": sx_row_value(row, "Tháng", "Month"),
+        "program": sx_row_value(row, "Chương trình", "Program"),
+        "position": sx_row_value(row, "Vị trí", "Position"),
+        "employee": sx_row_value(row, "Tên nhân viên", "Employee"),
+        "product": sx_row_value(row, "Tên sản phẩm", "Product"),
+        "product_type": sx_row_value(row, "Sản phẩm mới/sản phẩm cũ", "Product type"),
+        "project": sx_row_value(row, "Tên dự án", "Project"),
+        "department": sx_row_value(row, "Bộ môn", "Department"),
+        "feature": sx_row_value(row, "Đặc tính sản phẩm", "Feature"),
+        "deliverable": sx_row_value(row, "Sản phẩm bàn giao", "Deliverable"),
+        "unit": sx_row_value(row, "Đơn vị tính", "Unit"),
+        "actual": sx_row_value(row, "Số lượng actual", "Actual"),
+        "kpi_standard": sx_row_value(row, "KPI standard (h)/1 ĐV quy đổi", "KPI standard", "KPI standard (h)"),
+        "_source_file": row.get("_source_file"),
+        "_source_sheet": row.get("_source_sheet"),
+        "_source_row": row.get("_source_row"),
+    }
+
+
+def source_file_for_program(program: Any) -> str | None:
+    key = norm(program).upper()
+    return SX_PROGRAM_SOURCE_FILES.get(key)
+
+
+def build_sx_checkpoint_data(
+    sx_rows: list[dict[str, Any]],
+    employee_lookup: dict[str, str],
+    include_cfa: bool,
+    append_start_row: int | None = None,
+) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]], int, int]:
+    summary: list[list[Any]] = []
+    details: list[list[Any]] = []
+    missing_mnv_detail: list[list[Any]] = []
+
+    kept_rows = 0
+    skipped_rows = 0
+    missing_employee_rows = 0
+    missing_mnv_rows = 0
+    missing_mnv_employees: set[str] = set()
+    next_append_row = append_start_row
+
+    def recommendation_for(issues: list[str]) -> tuple[str, str]:
+        if not issues:
+            return "OK", "YES"
+        if "missing MNV" in issues and "missing employee" in issues:
+            return "Update source employee name and then refresh 'Mã nhân viên' lookup", "NO"
+        if "missing MNV" in issues:
+            return "Add or fix the employee in sheet 'Mã nhân viên' or correct the source name", "NO"
+        if "missing employee" in issues:
+            return "Fill the employee name in the source row", "NO"
+        return "Review source row", "NO"
+
+    for row in sx_rows:
+        program = clean(row.get("program"))
+        program_key = norm(program).upper()
+        if program_key not in SX_ALLOWED_PROGRAMS:
+            skipped_rows += 1
+            details.append([
+                row.get("year"),
+                row.get("month"),
+                program,
+                row.get("_source_file") or source_file_for_program(program),
+                row.get("_source_sheet"),
+                row.get("_source_row"),
+                None,
+                row.get("employee"),
+                row.get("position"),
+                None,
+                row.get("product"),
+                row.get("project"),
+                "unsupported program",
+                "Verify source program and keep only ACCA/CMA/CFA rows",
+                "NO",
+                None,
+            ])
+            continue
+        if program_key == "CFA" and not include_cfa:
+            skipped_rows += 1
+            details.append([
+                row.get("year"),
+                row.get("month"),
+                program,
+                row.get("_source_file") or source_file_for_program(program),
+                row.get("_source_sheet"),
+                row.get("_source_row"),
+                None,
+                row.get("employee"),
+                row.get("position"),
+                None,
+                row.get("product"),
+                row.get("project"),
+                "CFA excluded before 05/2026",
+                "Keep on Data SX CFA sheet for months before 05/2026",
+                "NO",
+                None,
+            ])
+            continue
+
+        employee = clean(row.get("employee"))
+        mnv = lookup_employee_code(employee_lookup, employee)
+        issues = []
+        if not employee:
+            issues.append("missing employee")
+            missing_employee_rows += 1
+        if not mnv:
+            issues.append("missing MNV")
+            missing_mnv_rows += 1
+            if employee:
+                missing_mnv_employees.add(str(employee))
+
+        kept_rows += 1
+        recommended_action, apply_flag = recommendation_for(issues)
+        current_append_row = next_append_row if next_append_row is not None else None
+        if next_append_row is not None:
+            next_append_row += 1
+        if issues:
+            details.append([
+                row.get("year"),
+                row.get("month"),
+                program,
+                row.get("_source_file") or source_file_for_program(program),
+                row.get("_source_sheet"),
+                row.get("_source_row"),
+                current_append_row,
+                employee,
+                row.get("position"),
+                mnv,
+                row.get("product"),
+                row.get("project"),
+                "; ".join(issues) if issues else None,
+                recommended_action,
+                apply_flag,
+                None,
+            ])
+        if not mnv:
+            missing_mnv_detail.append([
+                row.get("year"),
+                row.get("month"),
+                program,
+                row.get("_source_file") or source_file_for_program(program),
+                row.get("_source_sheet"),
+                row.get("_source_row"),
+                employee,
+                clean(row.get("position")),
+                row.get("product"),
+                row.get("project"),
+                row.get("feature"),
+                row.get("unit"),
+                row.get("actual"),
+                row.get("kpi_standard"),
+                "missing MNV",
+                "Add or fix the employee in sheet 'Mã nhân viên' or correct the source name",
+                "NO",
+                None,
+            ])
+
+    summary.extend([
+        ["Rows staged", len(sx_rows)],
+        ["Rows appended", kept_rows],
+        ["Rows skipped", skipped_rows],
+        ["Rows missing employee", missing_employee_rows],
+        ["Rows missing MNV", missing_mnv_rows],
+        ["Distinct employees missing MNV", len(missing_mnv_employees)],
+    ])
+    return summary, details, missing_mnv_detail, kept_rows, skipped_rows
+
+
+def write_sx_checkpoint_sheet(
+    wb,
+    summary_rows: list[list[Any]],
+    detail_rows: list[list[Any]],
+    missing_mnv_rows: list[list[Any]],
+) -> None:
+    ws = reset_sheet(wb, SHEET_SX_CHECKPOINT)
+    next_row = append_table(
+        ws,
+        1,
+        "Summary",
+        ["Metric", "Value"],
+        summary_rows,
+    )
+    next_row = append_table(
+        ws,
+        next_row,
+        "Details",
+        [
+            "Year",
+            "Month",
+            "Program",
+            "Source file",
+            "Source sheet",
+            "Source row",
+            "Append row",
+            "Employee",
+            "Position",
+            "MNV lookup",
+            "Product",
+            "Project",
+            "Issue",
+            "Recommended action",
+            "Apply?",
+            "Approval notes",
+        ],
+        detail_rows,
+    )
+    ws.freeze_panes = "A3"
+    for col, width in {
+        "A": 10,
+        "B": 10,
+        "C": 12,
+        "D": 16,
+        "E": 16,
+        "F": 12,
+        "G": 12,
+        "H": 14,
+        "I": 24,
+        "J": 16,
+        "K": 28,
+        "L": 28,
+        "M": 28,
+        "N": 36,
+        "O": 10,
+    }.items():
+        ws.column_dimensions[col].width = width
+
+
+def read_sx_approvals(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        raise SystemExit(f"Approval file not found: {path}")
+
+    wb = load_workbook(path, data_only=False)
+    ws = find_sheet(wb, SHEET_SX_CHECKPOINT)
+    if ws is None:
+        return []
+
+    approvals: list[dict[str, Any]] = []
+
+    def parse_section(section_name: str) -> None:
+        header_row = find_section_header(ws, section_name)
+        if header_row is None:
+            return
+        headers = {str(ws.cell(header_row, c).value): c for c in range(1, ws.max_column + 1) if ws.cell(header_row, c).value}
+        if "Apply?" not in headers or "Recommended action" not in headers:
+            return
+        for r in range(header_row + 1, ws.max_row + 1):
+            marker = ws.cell(r, 1).value
+            if marker in {"Summary", "Details"}:
+                break
+            if not any(ws.cell(r, c).value is not None for c in range(1, ws.max_column + 1)):
+                continue
+            approvals.append(
+                {
+                    "section": section_name,
+                    "approval_row": r,
+                    "year": ws.cell(r, headers.get("Year", 0)).value if headers.get("Year") else None,
+                    "month": ws.cell(r, headers.get("Month", 0)).value if headers.get("Month") else None,
+                    "program": ws.cell(r, headers.get("Program", 0)).value if headers.get("Program") else None,
+                    "source_file": ws.cell(r, headers.get("Source file", 0)).value if headers.get("Source file") else None,
+                    "source_sheet": ws.cell(r, headers.get("Source sheet", 0)).value if headers.get("Source sheet") else None,
+                    "source_row": ws.cell(r, headers.get("Source row", 0)).value if headers.get("Source row") else None,
+                    "append_row": ws.cell(r, headers.get("Append row", 0)).value if headers.get("Append row") else None,
+                    "position": ws.cell(r, headers.get("Position", 0)).value if headers.get("Position") else None,
+                    "employee": ws.cell(r, headers.get("Employee", 0)).value if headers.get("Employee") else None,
+                    "mnv_lookup": ws.cell(r, headers.get("MNV lookup", 0)).value if headers.get("MNV lookup") else None,
+                    "product": ws.cell(r, headers.get("Product", 0)).value if headers.get("Product") else None,
+                    "project": ws.cell(r, headers.get("Project", 0)).value if headers.get("Project") else None,
+                    "feature": ws.cell(r, headers.get("Feature", 0)).value if headers.get("Feature") else None,
+                    "unit": ws.cell(r, headers.get("Unit", 0)).value if headers.get("Unit") else None,
+                    "actual": ws.cell(r, headers.get("Actual", 0)).value if headers.get("Actual") else None,
+                    "kpi_standard": ws.cell(r, headers.get("KPI standard", 0)).value if headers.get("KPI standard") else None,
+                    "issue": ws.cell(r, headers.get("Issue", 0)).value if headers.get("Issue") else None,
+                    "recommended_action": ws.cell(r, headers["Recommended action"]).value,
+                    "apply": ws.cell(r, headers["Apply?"]).value,
+                    "approval_notes": ws.cell(r, headers.get("Approval notes", 0)).value if headers.get("Approval notes") else None,
+                }
+            )
+
+    parse_section("Details")
+    return approvals
+
+
+def write_sx_approval_result_sheet(wb, results: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, "SX_Approval_Result")
+    headers = [
+        "Approval row",
+        "Section",
+        "Year",
+        "Month",
+        "Program",
+        "Employee",
+        "MNV lookup",
+        "Issue",
+        "Recommended action",
+        "Apply?",
+        "Resolved?",
+        "Resolution note",
+        "Status",
+    ]
+    append_table(ws, 1, "SX Approval Result", headers, results)
+    for col, width in {"A": 14, "B": 16, "C": 10, "D": 10, "E": 12, "F": 24, "G": 16, "H": 28, "I": 42, "J": 10, "K": 12, "L": 40, "M": 80}.items():
+        ws.column_dimensions[col].width = width
+
+
+def apply_sx_approvals(wb, approval_file: Path | None, employee_lookup: dict[str, str]) -> None:
+    if approval_file is None:
+        return
+    approvals = read_sx_approvals(approval_file)
+    if not approvals:
+        return
+
+    results: list[list[Any]] = []
+    for approval in approvals:
+        is_yes = approval_value_is_yes(approval.get("apply"))
+        mnv_lookup = clean(approval.get("mnv_lookup"))
+        status = "skipped: Apply? not yes"
+        resolved = "NO"
+        resolution_note = None
+        if is_yes:
+            if "missing MNV" in str(approval.get("issue") or "").lower():
+                if mnv_lookup or lookup_employee_code(employee_lookup, approval.get("employee")):
+                    status = "applied: resolved by updated MNV lookup"
+                    resolved = "YES"
+                    resolution_note = "Missing MNV resolved in approval workbook"
+                else:
+                    status = "failed: still missing MNV"
+                    resolution_note = "Add/update MNV in the approval workbook and rerun"
+            else:
+                status = "applied: retained row for regenerated SX output"
+                resolved = "YES"
+                resolution_note = "Row kept in regenerated SX output"
+
+        results.append(
+            [
+                approval.get("approval_row"),
+                approval.get("section"),
+                approval.get("year"),
+                approval.get("month"),
+                approval.get("program"),
+                approval.get("employee"),
+                mnv_lookup,
+                approval.get("issue"),
+                approval.get("recommended_action"),
+                approval.get("apply"),
+                resolved,
+                resolution_note,
+                status,
+            ]
+        )
+
+    write_sx_approval_result_sheet(wb, results)
+
+
+def find_month_label_col(ws, month: int, label_row: int = 1) -> int | None:
+    target = norm(f"Tháng {month}")
+    for c in range(1, ws.max_column + 1):
+        if norm(ws.cell(label_row, c).value) == target:
+            return c
+    return None
+
+
+def find_row_with_exact_match(ws, start_row: int, matchers: list[tuple[int, Any]]) -> int | None:
+    targets = [(col, norm(value)) for col, value in matchers if norm(value)]
+    if not targets:
+        return None
+    for r in range(start_row, ws.max_row + 1):
+        ok = True
+        for col, target in targets:
+            if norm(ws.cell(r, col).value) != target:
+                ok = False
+                break
+        if ok:
+            return r
+    return None
+
+
+def find_row_by_column_value(ws, start_row: int, col: int, value: Any) -> int | None:
+    target = norm(value)
+    if not target:
+        return None
+    for r in range(start_row, ws.max_row + 1):
+        if norm(ws.cell(r, col).value) == target:
+            return r
+    return None
+
+
+def sx_downstream_month_block_start(month: int) -> int:
+    return 11 + (month - 1) * 4
+
+
+def build_sx_downstream_checkpoint_data(
+    wb,
+    sx_rows: list[dict[str, Any]],
+    year: int,
+    month: int,
+    employee_lookup: dict[str, str],
+) -> tuple[list[list[Any]], list[list[Any]]]:
+    include_cfa = (year, month) >= (2026, 5)
+
+    filtered_rows: list[dict[str, Any]] = []
+    skipped_rows = 0
+    missing_mnv_rows = 0
+    for row in sx_rows:
+        program = norm(row.get("program")).upper()
+        if program not in SX_ALLOWED_PROGRAMS:
+            skipped_rows += 1
+            continue
+        if program == "CFA" and not include_cfa:
+            skipped_rows += 1
+            continue
+        # Only keep rows whose project already exists in 3.Vốn hóa.
+        # This avoids false downstream issues for projects that are not capitalized.
+        # The whitelist is built after we load the capitalization sheet below.
+        filtered_rows.append(row)
+        if not lookup_employee_code(employee_lookup, row.get("employee")):
+            missing_mnv_rows += 1
+
+    details: list[list[Any]] = []
+    summary: list[list[Any]] = []
+
+    consol_ws = find_sheet(wb, "Data SX consol")
+    timesheet_ws = find_sheet(wb, "Timesheet SX")
+    cost_ws = find_sheet(wb, "4.1 Chi phí nhân sự SX")
+    capital_ws = find_sheet(wb, SHEET_CAPITALIZATION)
+
+    if consol_ws is None or timesheet_ws is None or cost_ws is None or capital_ws is None:
+        summary.extend([
+            ["Rows staged from Data SX ACCA+CMA", len(filtered_rows)],
+            ["Rows missing in downstream", len(filtered_rows)],
+            ["Rows with missing MNV", missing_mnv_rows],
+            ["Rows excluded by filter", skipped_rows],
+        ])
+        details.append([
+            "sheet structure",
+            year,
+            month,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            "missing downstream sheet(s)",
+            "Restore missing downstream sheet(s) in template",
+            "NO",
+            None,
+            None,
+            None,
+            "NO",
+        ])
+        return summary, details
+
+    capitalization_projects: dict[str, str] = {}
+    for r in range(3, capital_ws.max_row + 1):
+        project_name = clean(capital_ws.cell(r, 3).value)
+        if project_name:
+            capitalization_projects[norm(project_name)] = project_name
+
+    eligible_rows: list[dict[str, Any]] = []
+    excluded_by_whitelist = 0
+    for row in filtered_rows:
+        if norm(clean(row.get("project"))) not in capitalization_projects:
+            excluded_by_whitelist += 1
+            continue
+        eligible_rows.append(row)
+
+    pairs: dict[tuple[str, str], dict[str, Any]] = {}
+    projects: dict[str, dict[str, Any]] = {}
+    for row in eligible_rows:
+        employee = clean(row.get("employee"))
+        project = clean(row.get("project"))
+        pair_key = (norm(project), norm(employee))
+        if pair_key not in pairs:
+            pairs[pair_key] = row
+        if project and norm(project) not in projects:
+            projects[norm(project)] = row
+
+    data_sx_consol_month_col = 32 + month
+    timesheet_month_col = 7 + month
+    cost_month_start_col = sx_downstream_month_block_start(month)
+    capital_month_col = find_month_label_col(capital_ws, month, label_row=1)
+    timesheet_month_header_col = find_month_label_col(timesheet_ws, month, label_row=2)
+    cost_month_header_col = find_month_label_col(cost_ws, month, label_row=1)
+
+    matched_consol = 0
+    matched_timesheet = 0
+    matched_cost = 0
+    matched_capital = 0
+    missing_consol = 0
+    missing_timesheet = 0
+    missing_cost = 0
+    missing_capital = 0
+    exact_match_mismatch = 0
+
+    def add_issue(
+        stage: str,
+        row: dict[str, Any],
+        issue: str,
+        recommended_action: str,
+        expected_target: Any = None,
+        actual_target: Any = None,
+        matched: str = "NO",
+        append_row: int | None = None,
+    ) -> None:
+        details.append([
+            stage,
+            row.get("year"),
+            row.get("month"),
+            row.get("program"),
+            row.get("_source_file") or source_file_for_program(row.get("program")),
+            row.get("_source_sheet"),
+            row.get("_source_row"),
+            append_row,
+            row.get("employee"),
+            row.get("position"),
+            lookup_employee_code(employee_lookup, row.get("employee")),
+            row.get("project"),
+            issue,
+            recommended_action,
+            "NO",
+            None,
+            expected_target,
+            actual_target,
+            matched,
+        ])
+
+    if timesheet_month_header_col is None:
+        add_issue(
+            "Timesheet SX",
+            filtered_rows[0] if filtered_rows else {"year": year, "month": month, "program": "SX"},
+            f"missing month {month} column",
+            "Copy the month block from the previous month and refresh formulas",
+            expected_target=f"Tháng {month}",
+            actual_target=None,
+        )
+    if cost_month_header_col is None:
+        add_issue(
+            "4.1 Chi phí nhân sự SX",
+            filtered_rows[0] if filtered_rows else {"year": year, "month": month, "program": "SX"},
+            f"missing month {month} block",
+            "Copy the month block from the previous month and refresh formulas",
+            expected_target=f"Tháng {month}",
+            actual_target=None,
+        )
+    if capital_month_col is None:
+        add_issue(
+            SHEET_CAPITALIZATION,
+            filtered_rows[0] if filtered_rows else {"year": year, "month": month, "program": "SX"},
+            f"missing month {month} block",
+            "Copy the month block from the previous month and refresh formulas",
+            expected_target=f"Tháng {month}",
+            actual_target=None,
+        )
+
+    for (project_key, employee_key), row in pairs.items():
+        project = clean(row.get("project"))
+        employee = clean(row.get("employee"))
+        append_row = None
+        # Data SX consol
+        consol_row = find_row_with_exact_match(consol_ws, 6, [(30, project), (31, employee)])
+        if consol_row is None or norm(consol_ws.cell(consol_row, data_sx_consol_month_col).value) in {"", "none"}:
+            missing_consol += 1
+            add_issue(
+                "Data SX consol",
+                row,
+                "missing in Data SX consol",
+                "Refresh Data SX consol pivot and verify project/employee mapping",
+                expected_target=f"{project} / {employee}",
+                actual_target=None if consol_row is None else consol_ws.cell(consol_row, data_sx_consol_month_col).value,
+                matched="NO" if consol_row is None else "PARTIAL",
+                append_row=append_row,
+            )
+        else:
+            matched_consol += 1
+
+        # Timesheet SX
+        ts_row = find_row_with_exact_match(timesheet_ws, 4, [(4, project), (6, employee)])
+        if ts_row is None or norm(timesheet_ws.cell(ts_row, timesheet_month_col).value) in {"", "none"}:
+            missing_timesheet += 1
+            add_issue(
+                "Timesheet SX",
+                row,
+                "missing in Timesheet SX",
+                "Check project/employee mapping in Data SX consol and refresh Timesheet SX formulas",
+                expected_target=f"{project} / {employee}",
+                actual_target=None if ts_row is None else timesheet_ws.cell(ts_row, timesheet_month_col).value,
+                matched="NO" if ts_row is None else "PARTIAL",
+                append_row=append_row,
+            )
+        else:
+            matched_timesheet += 1
+
+        # 4.1 Chi phí nhân sự SX
+        cost_row = find_row_with_exact_match(cost_ws, 3, [(1, project), (7, employee)])
+        if cost_row is None or all(norm(cost_ws.cell(cost_row, c).value) in {"", "none"} for c in range(cost_month_start_col, min(cost_month_start_col + 3, cost_ws.max_column + 1))):
+            missing_cost += 1
+            add_issue(
+                "4.1 Chi phí nhân sự SX",
+                row,
+                "missing in 4.1 Chi phí nhân sự SX",
+                "Refresh cost formulas and verify the project/employee row exists",
+                expected_target=f"{project} / {employee}",
+                actual_target=None if cost_row is None else cost_ws.cell(cost_row, cost_month_start_col).value,
+                matched="NO" if cost_row is None else "PARTIAL",
+                append_row=append_row,
+            )
+        else:
+            matched_cost += 1
+
+    for project_key, row in projects.items():
+        project = clean(row.get("project"))
+        capital_row = find_row_by_column_value(capital_ws, 3, 3, project)
+        if capital_row is None:
+            missing_capital += 1
+            add_issue(
+                SHEET_CAPITALIZATION,
+                row,
+                "missing in 3.Vốn hóa",
+                "Add or verify the project row in the capitalization sheet and catalog",
+                expected_target=project,
+                actual_target=None,
+                matched="NO",
+                append_row=None,
+            )
+        else:
+            matched_capital += 1
+
+    summary.extend([
+        ["Rows staged from Data SX ACCA+CMA", len(filtered_rows)],
+        ["Rows eligible for downstream by 3.Vốn hóa whitelist", len(eligible_rows)],
+        ["Rows matched in Data SX consol", matched_consol],
+        ["Rows missing in Data SX consol", missing_consol],
+        ["Rows matched in Timesheet SX", matched_timesheet],
+        ["Rows missing in Timesheet SX", missing_timesheet],
+        ["Rows matched in 4.1 Chi phí nhân sự SX", matched_cost],
+        ["Rows missing in 4.1 Chi phí nhân sự SX", missing_cost],
+        ["Rows reaching 3.Vốn hóa", matched_capital],
+        ["Rows missing in 3.Vốn hóa", missing_capital],
+        ["Rows with missing MNV", missing_mnv_rows],
+        ["Rows excluded by filter", skipped_rows],
+        ["Rows excluded by project whitelist", excluded_by_whitelist],
+        ["Rows with exact-match mismatch", exact_match_mismatch],
+    ])
+    return summary, details
+
+
+def write_sx_downstream_checkpoint_sheet(wb, summary_rows: list[list[Any]], detail_rows: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, SHEET_SX_DOWNSTREAM_CHECKPOINT)
+    next_row = append_table(
+        ws,
+        1,
+        "Summary",
+        ["Metric", "Value"],
+        summary_rows,
+    )
+    append_table(
+        ws,
+        next_row,
+        "Details",
+        [
+            "Stage",
+            "Year",
+            "Month",
+            "Program",
+            "Source file",
+            "Source sheet",
+            "Source row",
+            "Append row",
+            "Employee",
+            "Position",
+            "MNV lookup",
+            "Project",
+            "Issue",
+            "Recommended action",
+            "Apply?",
+            "Approval notes",
+            "Expected target",
+            "Actual target",
+            "Matched?",
+        ],
+        detail_rows,
+    )
+    ws.freeze_panes = "A3"
+    for col, width in {
+        "A": 18,
+        "B": 10,
+        "C": 10,
+        "D": 12,
+        "E": 18,
+        "F": 18,
+        "G": 12,
+        "H": 12,
+        "I": 24,
+        "J": 16,
+        "K": 14,
+        "L": 30,
+        "M": 26,
+        "N": 40,
+        "O": 10,
+        "P": 32,
+        "Q": 24,
+        "R": 24,
+        "S": 10,
+    }.items():
+        ws.column_dimensions[col].width = width
+
+
+def read_sx_downstream_approvals(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        raise SystemExit(f"Approval file not found: {path}")
+
+    wb = load_workbook(path, data_only=False)
+    ws = find_sheet(wb, SHEET_SX_DOWNSTREAM_CHECKPOINT)
+    if ws is None:
+        return []
+
+    header_row = find_section_header(ws, "Details")
+    if header_row is None:
+        return []
+    headers = {str(ws.cell(header_row, c).value): c for c in range(1, ws.max_column + 1) if ws.cell(header_row, c).value}
+    required = ["Stage", "Project", "Issue", "Recommended action", "Apply?"]
+    missing = [name for name in required if name not in headers]
+    if missing:
+        raise SystemExit(f"Approval file is missing required columns in Check_SX_Downstream: {missing}")
+
+    approvals: list[dict[str, Any]] = []
+    for r in range(header_row + 1, ws.max_row + 1):
+        marker = ws.cell(r, 1).value
+        if marker in {"Summary", "Details"}:
+            break
+        if not any(ws.cell(r, c).value is not None for c in range(1, ws.max_column + 1)):
+            continue
+        if not approval_value_is_yes(ws.cell(r, headers["Apply?"]).value):
+            continue
+        approvals.append(
+            {
+                "approval_row": r,
+                "stage": ws.cell(r, headers["Stage"]).value,
+                "year": ws.cell(r, headers.get("Year", 0)).value if headers.get("Year") else None,
+                "month": month_number(ws.cell(r, headers.get("Month", 0)).value) if headers.get("Month") else None,
+                "program": ws.cell(r, headers.get("Program", 0)).value if headers.get("Program") else None,
+                "source_file": ws.cell(r, headers.get("Source file", 0)).value if headers.get("Source file") else None,
+                "source_sheet": ws.cell(r, headers.get("Source sheet", 0)).value if headers.get("Source sheet") else None,
+                "source_row": ws.cell(r, headers.get("Source row", 0)).value if headers.get("Source row") else None,
+                "append_row": ws.cell(r, headers.get("Append row", 0)).value if headers.get("Append row") else None,
+                "employee": ws.cell(r, headers.get("Employee", 0)).value if headers.get("Employee") else None,
+                "position": ws.cell(r, headers.get("Position", 0)).value if headers.get("Position") else None,
+                "mnv_lookup": ws.cell(r, headers.get("MNV lookup", 0)).value if headers.get("MNV lookup") else None,
+                "project": ws.cell(r, headers["Project"]).value,
+                "issue": ws.cell(r, headers["Issue"]).value,
+                "recommended_action": ws.cell(r, headers["Recommended action"]).value,
+                "apply": ws.cell(r, headers["Apply?"]).value,
+                "approval_notes": ws.cell(r, headers.get("Approval notes", 0)).value if headers.get("Approval notes") else None,
+                "expected_target": ws.cell(r, headers.get("Expected target", 0)).value if headers.get("Expected target") else None,
+                "actual_target": ws.cell(r, headers.get("Actual target", 0)).value if headers.get("Actual target") else None,
+                "matched": ws.cell(r, headers.get("Matched?", 0)).value if headers.get("Matched?") else None,
+            }
+        )
+    return approvals
+
+
+def write_sx_downstream_approval_result_sheet(wb, results: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, SHEET_SX_DOWNSTREAM_RESULT)
+    headers = [
+        "Approval row",
+        "Stage",
+        "Year",
+        "Month",
+        "Program",
+        "Employee",
+        "Project",
+        "Issue",
+        "Recommended action",
+        "Apply?",
+        "Resolved?",
+        "Resolution note",
+        "Status",
+    ]
+    append_table(ws, 1, "SX Downstream Approval Result", headers, results)
+    for col, width in {"A": 14, "B": 20, "C": 10, "D": 10, "E": 12, "F": 24, "G": 28, "H": 28, "I": 42, "J": 10, "K": 12, "L": 40, "M": 80}.items():
+        ws.column_dimensions[col].width = width
+
+
+def apply_sx_downstream_approvals(wb, approval_file: Path | None) -> None:
+    if approval_file is None:
+        return
+    approvals = read_sx_downstream_approvals(approval_file)
+    if not approvals:
+        return
+
+    results: list[list[Any]] = []
+    for approval in approvals:
+        is_yes = approval_value_is_yes(approval.get("apply"))
+        issue = str(approval.get("issue") or "")
+        stage = str(approval.get("stage") or "")
+        status = "skipped: Apply? not yes"
+        resolved = "NO"
+        resolution_note = None
+        if is_yes:
+            if "missing month" in norm(issue) and stage in {"4.1 Chi phí nhân sự SX", SHEET_CAPITALIZATION, "Timesheet SX"}:
+                status = "applied: downstream month block retained for regenerated workbook"
+                resolved = "YES"
+                resolution_note = "Month block already present in regenerated workbook or manually updated in approval workbook"
+            else:
+                status = "applied: downstream issue reviewed"
+                resolved = "YES"
+                resolution_note = "Issue recorded for manual review"
+
+        results.append(
+            [
+                approval.get("approval_row"),
+                stage,
+                approval.get("year"),
+                approval.get("month"),
+                approval.get("program"),
+                approval.get("employee"),
+                approval.get("project"),
+                approval.get("issue"),
+                approval.get("recommended_action"),
+                approval.get("apply"),
+                resolved,
+                resolution_note,
+                status,
+            ]
+        )
+
+    write_sx_downstream_approval_result_sheet(wb, results)
+
+
+def append_sx_to_template(
+    wb,
+    sx_rows: list[dict[str, Any]],
+    employee_lookup: dict[str, str],
+    year: int,
+    month: int,
+) -> tuple[int, int]:
+    ws = find_sheet(wb, SHEET_SX_TARGET)
+    if ws is None:
+        raise SystemExit(f"Output workbook does not contain sheet {SHEET_SX_TARGET}.")
+
+    include_cfa = (year, month) >= (2026, 5)
+    template_row = SX_TEMPLATE_ROW
+    append_row = find_sx_append_start_row(ws, template_row=template_row)
+    summary_rows, detail_rows, missing_mnv_rows, kept_rows, skipped_rows = build_sx_checkpoint_data(
+        sx_rows,
+        employee_lookup,
+        include_cfa,
+        append_start_row=append_row,
+    )
+
+    current_row = append_row
+
+    for row in sx_rows:
+        program = norm(row.get("program")).upper()
+        if program not in SX_ALLOWED_PROGRAMS:
+            continue
+        if program == "CFA" and not include_cfa:
+            continue
+
+        if current_row == append_row:
+            copy_row_style_and_formulas_only(ws, template_row, current_row, 18)
+        else:
+            copy_row_style_and_formulas_only(ws, current_row - 1, current_row, 18)
+
+        ws.cell(current_row, 1).value = month
+        ws.cell(current_row, 2).value = clean(row.get("program"))
+        ws.cell(current_row, 3).value = clean(row.get("position"))
+        ws.cell(current_row, 4).value = clean(row.get("employee"))
+        ws.cell(current_row, 6).value = clean(row.get("product"))
+        ws.cell(current_row, 7).value = None
+        ws.cell(current_row, 8).value = clean(row.get("product_type"))
+        ws.cell(current_row, 9).value = clean(row.get("project"))
+        ws.cell(current_row, 10).value = clean(row.get("department"))
+        ws.cell(current_row, 11).value = clean(row.get("feature"))
+        ws.cell(current_row, 12).value = clean(row.get("deliverable"))
+        ws.cell(current_row, 13).value = None
+        ws.cell(current_row, 14).value = None
+        ws.cell(current_row, 15).value = clean(row.get("unit"))
+        ws.cell(current_row, 16).value = row.get("actual")
+        ws.cell(current_row, 17).value = row.get("kpi_standard")
+        ws.cell(current_row, 18).value = None
+
+        for detail in detail_rows:
+            if detail[0] == row.get("year") and detail[1] == row.get("month") and norm(detail[2]).upper() == program and detail[5] == row.get("_source_row"):
+                detail[4] = row.get("_source_sheet")
+                detail[6] = current_row
+                detail[7] = clean(row.get("employee"))
+                detail[8] = clean(row.get("position"))
+                detail[9] = lookup_employee_code(employee_lookup, row.get("employee"))
+                break
+
+        current_row += 1
+
+    summary_rows[:0] = [
+        ["Year", year],
+        ["Month", month],
+        ["Include CFA", "YES" if include_cfa else "NO"],
+        ["Append start row", append_row],
+        ["Append end row", current_row - 1 if current_row > append_row else None],
+    ]
+    if current_row > append_row:
+        # Keep the filter/table range aligned with the newly appended SX rows.
+        ws.auto_filter.ref = f"A2:V{current_row - 1}"
+    write_sx_checkpoint_sheet(wb, summary_rows, detail_rows, missing_mnv_rows)
+    return kept_rows, skipped_rows
+
+
 def clear_values(ws, start_row: int, end_row: int, start_col: int, end_col: int) -> None:
     for r in range(start_row, end_row + 1):
         for c in range(start_col, end_col + 1):
@@ -252,6 +1291,17 @@ def find_header_row(ws, required_terms: list[str], max_scan_row: int = 20) -> tu
         if sum(1 for term in required_terms if any(term in h for h in headers)) >= max(2, len(required_terms) // 2):
             return row_idx, headers
     return None, {}
+
+
+def find_section_header(ws, section_title: str, max_scan_row: int = 120) -> int | None:
+    target = norm(section_title)
+    if not target:
+        return None
+    for row_idx in range(1, min(ws.max_row or 0, max_scan_row) + 1):
+        first_cell = norm(ws.cell(row_idx, 1).value)
+        if first_cell == target:
+            return row_idx + 1
+    return None
 
 
 def get_header_col(headers: dict[str, int], *aliases: str) -> int | None:
@@ -298,6 +1348,10 @@ def parse_month_value(value: Any) -> int | None:
     return None
 
 
+def month_number(value: Any) -> int | None:
+    return parse_month_value(value)
+
+
 def parse_hours(value: Any) -> float | None:
     if value is None:
         return None
@@ -341,6 +1395,19 @@ def lookup_employee_code(lookup: dict[str, str], name: Any) -> str | None:
     if not name:
         return None
     return lookup.get(norm(name))
+
+
+def find_sheet(wb, sheet_name: str):
+    target = str(sheet_name).strip()
+    if not target:
+        return None
+    for ws in wb.worksheets:
+        if str(ws.title).strip() == target:
+            return ws
+    for ws in wb.worksheets:
+        if str(ws.title).strip().casefold() == target.casefold():
+            return ws
+    return None
 
 
 def find_it_sheet(wb):
@@ -636,6 +1703,292 @@ def copy_sheet_content(src_ws, dst_ws) -> None:
         dst_ws.auto_filter.ref = src_ws.auto_filter.ref
 
 
+def patch_pivot_refresh_flags(xlsx_path: Path) -> None:
+    pivot_cache_pattern = re.compile(r"(<pivotCacheDefinition\b[^>]*)(/?>)", re.IGNORECASE)
+
+    tmp_path = xlsx_path.with_suffix(".refreshing.xlsx")
+    with zipfile.ZipFile(xlsx_path, "r") as src_zip, zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as dst_zip:
+        for info in src_zip.infolist():
+            data = src_zip.read(info.filename)
+            if info.filename.startswith("xl/pivotCache/pivotCacheDefinition") and info.filename.endswith(".xml"):
+                text = data.decode("utf-8")
+                if "refreshOnLoad" not in text:
+                    text = pivot_cache_pattern.sub(lambda m: f"{m.group(1)} refreshOnLoad=\"1\"{m.group(2)}", text, count=1)
+                else:
+                    text = re.sub(r'refreshOnLoad=\"[^\"]*\"', 'refreshOnLoad=\"1\"', text, count=1)
+                data = text.encode("utf-8")
+            dst_zip.writestr(info, data)
+
+    xlsx_path.unlink(missing_ok=True)
+    tmp_path.replace(xlsx_path)
+
+
+def copy_column_block_with_translation(ws, source_start_col: int, target_start_col: int, width: int) -> None:
+    for offset in range(width):
+        src_col = source_start_col + offset
+        dst_col = target_start_col + offset
+        src_letter = get_column_letter(src_col)
+        dst_letter = get_column_letter(dst_col)
+        src_dim = ws.column_dimensions[src_letter]
+        dst_dim = ws.column_dimensions[dst_letter]
+        dst_dim.width = src_dim.width
+        dst_dim.hidden = src_dim.hidden
+        dst_dim.outlineLevel = src_dim.outlineLevel
+
+    for r in range(1, ws.max_row + 1):
+        for offset in range(width):
+            src = ws.cell(r, source_start_col + offset)
+            dst = ws.cell(r, target_start_col + offset)
+            if src.has_style:
+                dst._style = copy(src._style)
+            if src.number_format:
+                dst.number_format = src.number_format
+            if src.font:
+                dst.font = copy(src.font)
+            if src.fill:
+                dst.fill = copy(src.fill)
+            if src.border:
+                dst.border = copy(src.border)
+            if src.alignment:
+                dst.alignment = copy(src.alignment)
+            if src.protection:
+                dst.protection = copy(src.protection)
+            if isinstance(src.value, str) and src.value.startswith("="):
+                dst.value = Translator(src.value, origin=src.coordinate).translate_formula(dst.coordinate)
+            else:
+                dst.value = src.value
+
+
+def copy_capitalization_month_block(capitalization, month: int) -> str:
+    month_col = find_month_label_col(capitalization, month, label_row=1)
+    if month_col is not None:
+        return "skipped: month block already exists"
+
+    prev_month = month - 1
+    source_col = find_month_label_col(capitalization, prev_month, label_row=1)
+    if source_col is None:
+        return f"failed: no template month block found for month {prev_month}"
+
+    block_width = 8
+    target_col = source_col + block_width
+    copy_column_block_with_translation(capitalization, source_col, target_col, block_width)
+    capitalization.cell(1, target_col).value = f"Tháng {month}"
+    return f"applied: copied month {prev_month} block to month {month}"
+
+
+def build_capitalization_month_checkpoint(capitalization, month: int) -> tuple[list[list[Any]], list[list[Any]]]:
+    summary: list[list[Any]] = []
+    details: list[list[Any]] = []
+
+    month_col = find_month_label_col(capitalization, month, label_row=1)
+    prev_month = month - 1
+    prev_col = find_month_label_col(capitalization, prev_month, label_row=1)
+
+    status = "OK" if month_col is not None else "MISSING"
+    summary.extend([
+        ["Target month", month],
+        ["Month block status", status],
+        ["Previous month available", "YES" if prev_col is not None else "NO"],
+        ["Recommended action", "Copy previous month block" if month_col is None and prev_col is not None else "No action required"],
+    ])
+
+    if month_col is None:
+        details.append([
+            SHEET_CAPITALIZATION,
+            month,
+            f"missing month {month} block",
+            f"Copy month {prev_month} block to month {month}",
+            "NO",
+            None,
+            prev_month,
+            month,
+            None,
+        ])
+
+    return summary, details
+
+
+def write_capitalization_month_checkpoint_sheet(wb, summary_rows: list[list[Any]], detail_rows: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, "Check_Vonhoa_Month_Block")
+    next_row = append_table(
+        ws,
+        1,
+        "Summary",
+        ["Metric", "Value"],
+        summary_rows,
+    )
+    append_table(
+        ws,
+        next_row,
+        "Details",
+        ["Sheet", "Month", "Issue", "Recommended action", "Apply?", "Approval notes", "Source month", "Target month", "Status"],
+        detail_rows,
+    )
+    ws.freeze_panes = "A3"
+    for col, width in {"A": 20, "B": 10, "C": 24, "D": 36, "E": 10, "F": 24, "G": 12, "H": 12, "I": 14}.items():
+        ws.column_dimensions[col].width = width
+
+
+def read_capitalization_month_approvals(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        raise SystemExit(f"Approval file not found: {path}")
+    wb = load_workbook(path, data_only=False)
+    ws = find_sheet(wb, "Check_Vonhoa_Month_Block")
+    if ws is None:
+        return []
+
+    header_row = find_section_header(ws, "Details")
+    if header_row is None:
+        return []
+    headers = {str(ws.cell(header_row, c).value): c for c in range(1, ws.max_column + 1) if ws.cell(header_row, c).value}
+    required = ["Sheet", "Month", "Issue", "Recommended action", "Apply?"]
+    missing = [name for name in required if name not in headers]
+    if missing:
+        raise SystemExit(f"Approval file is missing required columns in Check_Vonhoa_Month_Block: {missing}")
+
+    approvals: list[dict[str, Any]] = []
+    for r in range(header_row + 1, ws.max_row + 1):
+        marker = ws.cell(r, 1).value
+        if marker in {"Summary", "Details"}:
+            break
+        if not any(ws.cell(r, c).value is not None for c in range(1, ws.max_column + 1)):
+            continue
+        if not approval_value_is_yes(ws.cell(r, headers["Apply?"]).value):
+            continue
+        approvals.append(
+            {
+                "approval_row": r,
+                "sheet": ws.cell(r, headers["Sheet"]).value,
+                "month": month_number(ws.cell(r, headers["Month"]).value),
+                "issue": ws.cell(r, headers["Issue"]).value,
+                "recommended_action": ws.cell(r, headers["Recommended action"]).value,
+                "apply": ws.cell(r, headers["Apply?"]).value,
+                "approval_notes": ws.cell(r, headers.get("Approval notes", 0)).value if headers.get("Approval notes") else None,
+                "source_month": month_number(ws.cell(r, headers.get("Source month", 0)).value) if headers.get("Source month") else None,
+                "target_month": month_number(ws.cell(r, headers.get("Target month", 0)).value) if headers.get("Target month") else None,
+                "status": ws.cell(r, headers.get("Status", 0)).value if headers.get("Status") else None,
+            }
+        )
+    return approvals
+
+
+def write_capitalization_month_result_sheet(wb, results: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, "Vonhoa_Block_Approval_Result")
+    headers = [
+        "Approval row",
+        "Sheet",
+        "Month",
+        "Issue",
+        "Recommended action",
+        "Apply?",
+        "Resolved?",
+        "Resolution note",
+        "Status",
+    ]
+    append_table(ws, 1, "Von hoa Month Block Approval Result", headers, results)
+    for col, width in {"A": 14, "B": 20, "C": 10, "D": 24, "E": 36, "F": 10, "G": 12, "H": 40, "I": 80}.items():
+        ws.column_dimensions[col].width = width
+
+
+def apply_capitalization_month_approvals(wb, approval_file: Path | None) -> None:
+    if approval_file is None:
+        return
+    approvals = read_capitalization_month_approvals(approval_file)
+    if not approvals:
+        return
+
+    capital = find_sheet(wb, SHEET_CAPITALIZATION)
+    if capital is None:
+        raise SystemExit(f"Output workbook does not contain sheet {SHEET_CAPITALIZATION}.")
+
+    results: list[list[Any]] = []
+    for approval in approvals:
+        month = approval.get("month")
+        issue = norm(approval.get("issue"))
+        is_yes = approval_value_is_yes(approval.get("apply"))
+        status = "skipped: Apply? not yes"
+        resolved = "NO"
+        resolution_note = None
+        if is_yes:
+            if month is None:
+                status = "failed: missing month"
+                resolution_note = "Set the target month in the approval workbook"
+            elif "missing month" in issue:
+                status = copy_capitalization_month_block(capital, month)
+                resolved = "YES" if status.startswith("applied:") or status.startswith("skipped:") else "NO"
+                resolution_note = f"Month block for {month} handled"
+            else:
+                status = "skipped: unsupported issue"
+                resolution_note = "Only missing month block issues are supported"
+        results.append([
+            approval.get("approval_row"),
+            approval.get("sheet"),
+            month,
+            approval.get("issue"),
+            approval.get("recommended_action"),
+            approval.get("apply"),
+            resolved,
+            resolution_note,
+            status,
+        ])
+
+    write_capitalization_month_result_sheet(wb, results)
+
+
+def restore_checkpoint_sheets_from_previous_output(wb, current_output: Path) -> None:
+    candidates = sorted(
+        DIRS["final"].glob("von_hoa_*.xlsx"),
+        key=lambda p: p.stat().st_mtime if p.exists() else 0,
+        reverse=True,
+    )
+    source_path = None
+    current_resolved = current_output.resolve() if current_output.exists() else None
+    for candidate in candidates:
+        try:
+            if current_resolved is not None and candidate.resolve() == current_resolved:
+                continue
+        except Exception:
+            pass
+        source_path = candidate
+        break
+
+    if source_path is None:
+        return
+
+    try:
+        source_wb = load_workbook(source_path, data_only=False)
+    except Exception:
+        return
+
+    sheet_names = [
+        "Check_IT_CPNS",
+        "IT_New_Project_Master",
+        "Check_IT_Downstream",
+        "Check_Media_Timesheet",
+    ]
+    if not any(name in source_wb.sheetnames for name in sheet_names):
+        for candidate in candidates[1:]:
+            try:
+                source_wb = load_workbook(candidate, data_only=False)
+            except Exception:
+                continue
+            if any(name in source_wb.sheetnames for name in sheet_names):
+                source_path = candidate
+                break
+
+    for sheet_name in sheet_names:
+        source_ws = find_sheet(source_wb, sheet_name)
+        if source_ws is None:
+            continue
+        target_ws = find_sheet(wb, sheet_name)
+        if target_ws is None:
+            target_ws = wb.create_sheet(title=sheet_name)
+        copy_sheet_content(source_ws, target_ws)
+        if sheet_name == "Check_IT_CPNS":
+            # Keep the summary and header row fixed, but allow the details table to scroll normally.
+            target_ws.freeze_panes = "A18"
+
+
 def find_payroll_header_row(ws) -> int | None:
     for r in range(1, min(ws.max_row or 0, 20) + 1):
         values = {norm(ws.cell(r, c).value) for c in range(1, (ws.max_column or 0) + 1)}
@@ -705,34 +2058,53 @@ def sync_payroll_from_onedrive(wb, payroll_path: Path = PAYROLL_SOURCE_PATH) -> 
         write_payroll_checkpoint_sheet(wb, rows)
         return rows
 
-    source_wb = load_workbook(payroll_path, data_only=False)
-    for sheet_name in PAYROLL_SHEETS:
-        source_ws = find_sheet(source_wb, sheet_name)
-        target_ws = find_sheet(wb, sheet_name)
-        source_sheet_exists = source_ws is not None
-        output_sheet_exists = target_ws is not None
-        copied_rows = 0
-        copied_cols = 0
-        header_row = None
-        duplicate_count = 0
-        status = "OK"
+    temp_path = DIRS["staging"] / f".payroll_sync_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+    try:
+        shutil.copy2(payroll_path, temp_path)
+        source_wb = load_workbook(temp_path, data_only=False)
+    except PermissionError:
+        for sheet_name in PAYROLL_SHEETS:
+            rows.append([sheet_name, str(payroll_path), modified, True, False, find_sheet(wb, sheet_name) is not None, 0, 0, None, 0, "failed: payroll source file is locked or in use"])
+        write_payroll_checkpoint_sheet(wb, rows)
+        return rows
+    except Exception as exc:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+        for sheet_name in PAYROLL_SHEETS:
+            rows.append([sheet_name, str(payroll_path), modified, True, False, find_sheet(wb, sheet_name) is not None, 0, 0, None, 0, f"failed: payroll temp copy/open error: {exc}"])
+        write_payroll_checkpoint_sheet(wb, rows)
+        return rows
 
-        if source_ws is None:
-            status = "failed: source sheet missing"
-        elif target_ws is None:
-            status = "failed: output sheet missing"
-        else:
-            copy_sheet_content(source_ws, target_ws)
-            copied_rows = source_ws.max_row or 0
-            copied_cols = source_ws.max_column or 0
-            header_row = find_payroll_header_row(source_ws)
-            duplicate_count = payroll_duplicate_keys(source_ws, header_row)
-            if header_row is None:
-                status = "warning: header row not detected"
-            elif duplicate_count:
-                status = f"warning: {duplicate_count} duplicate Month+MNV rows"
+    try:
+        for sheet_name in PAYROLL_SHEETS:
+            source_ws = find_sheet(source_wb, sheet_name)
+            target_ws = find_sheet(wb, sheet_name)
+            source_sheet_exists = source_ws is not None
+            output_sheet_exists = target_ws is not None
+            copied_rows = 0
+            copied_cols = 0
+            header_row = None
+            duplicate_count = 0
+            status = "OK"
 
-        rows.append([sheet_name, str(payroll_path), modified, source_exists, source_sheet_exists, output_sheet_exists, copied_rows, copied_cols, header_row, duplicate_count, status])
+            if source_ws is None:
+                status = "failed: source sheet missing"
+            elif target_ws is None:
+                status = "failed: output sheet missing"
+            else:
+                copy_sheet_content(source_ws, target_ws)
+                copied_rows = source_ws.max_row or 0
+                copied_cols = source_ws.max_column or 0
+                header_row = find_payroll_header_row(source_ws)
+                duplicate_count = payroll_duplicate_keys(source_ws, header_row)
+                if header_row is None:
+                    status = "warning: header row not detected"
+                elif duplicate_count:
+                    status = f"warning: {duplicate_count} duplicate Month+MNV rows"
+
+            rows.append([sheet_name, str(payroll_path), modified, source_exists, source_sheet_exists, output_sheet_exists, copied_rows, copied_cols, header_row, duplicate_count, status])
+    finally:
+        temp_path.unlink(missing_ok=True)
 
     write_payroll_checkpoint_sheet(wb, rows)
     return rows
@@ -741,19 +2113,15 @@ def sync_payroll_from_onedrive(wb, payroll_path: Path = PAYROLL_SOURCE_PATH) -> 
 def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None = None) -> None:
     ws = reset_sheet(wb, "Huong_dan_Approval")
     rows = [
-        ["Step", "Approval source workbook", "Command / Value", "Instruction"],
-        [1, str(output_path), "", "Open this workbook and review Check_Payroll / Check_IT_CPNS / IT_New_Project_Master / Check_IT_Downstream / Check_Media_Timesheet."],
-        [2, str(output_path), "YES / Y / TRUE / 1 / APPLY / APPROVED", "Enter one of these values in Apply? for rows you want to approve. Leave blank or enter NO to skip."],
-        [3, str(output_path), "CLEAN_COST_PROJECT_TEXT", "IT action: cleans extra whitespace in Chi phí nhân sự IT project names."],
-        [4, str(output_path), "FILL_COST_MONTH_FORMULA", "IT action: fills missing month formulas in an existing Chi phí nhân sự IT row."],
-        [5, str(output_path), "ADD_COST_ROW", "IT action: adds a missing Chi phí nhân sự IT row when an existing project row and employee template row are available."],
-        [6, str(output_path), "ADD_PROJECT_MASTER_FIRST", "IT checkpoint action: review IT_New_Project_Master and approve/fill master metadata before adding downstream rows."],
-        [7, str(output_path), "ADD_TO_PROJECT_CATALOG / ADD_TO_CAPITALIZATION / ADD_MNV_TO_IT_CHECKING", "Downstream actions: catalog and capitalization can auto-apply; MNV checking remains manual until salary base source is validated."],
-        [8, str(output_path), "FIX_MEDIA_WEIGHT_OR_MONTH", "Media action: fills missing month when inferable from task name and refreshes Data media H/I formulas."],
-        [9, str(output_path), f"py -3 automate_kpi.py --approval-file \"{output_path}\"", "After marking approvals in this workbook, run this command and point --approval-file to this exact edited workbook."],
-        [10, str(approval_file) if approval_file else "(none)", "", "If this run used an approval file, that file is listed here. To change your mind, edit that approval file or rerun without --approval-file."],
-        [11, str(output_path), "py -3 automate_kpi.py", "Rerun without --approval-file to ignore all approvals and generate a fresh workbook from template/source data."],
-        [12, str(output_path), "IT_Approval_Result / Project_Master_Approval_Result / Downstream_Approval_Result / Media_Approval_Result", "The next output workbook will include these result sheets with applied/skipped/failed statuses."],
+        ["Bước", "Workbook approval", "Lệnh / Giá trị", "Hướng dẫn"],
+        [1, str(output_path), "", "Mở workbook này, chọn Data -> Refresh All trong Excel nếu cần làm mới pivot/cache, rồi kiểm tra các sheet Check_Payroll, checkpoint data SX, Check_SX_Downstream và Check_Vonhoa_Month_Block. Các sheet IT khác đã có sẵn trong template."],
+        [2, str(output_path), "YES / Y / TRUE / 1 / APPLY / APPROVED", "Nhập một trong các giá trị này vào cột Apply? cho những dòng bạn muốn duyệt. Để trống hoặc nhập NO nếu không duyệt."],
+        [3, str(output_path), "checkpoint data SX", "Hành động SX source: kiểm tra một sheet duy nhất gồm Summary / Details. Các dòng thiếu MNV sẽ nằm ngay trong Details với Issue = missing MNV; cập nhật sheet Mã nhân viên nếu cần, ghi chú ở cột Approval notes nếu cần, rồi đặt Apply? cho các dòng muốn mang qua file mới."],
+        [4, str(output_path), "Check_SX_Downstream", "Hành động SX downstream: kiểm tra Summary / Details để soi dữ liệu rơi ở Data SX consol, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa. Chỉ các project có tên nằm trong 3.Vốn hóa mới được tính downstream; các project khác sẽ bị loại theo whitelist. Nếu cache/pivot chưa cập nhật, hãy Refresh All trong Excel trước khi đánh giá. Nếu cần chỉnh thì sửa workbook theo cột Recommended action rồi đặt Apply? cho các dòng muốn duyệt."],
+        [5, str(output_path), f"py -3 automate_kpi.py --approval-file \"{output_path}\"", "Sau khi đánh dấu các dòng cần duyệt trong workbook này, chạy lệnh này và trỏ --approval-file về đúng workbook đã chỉnh."],
+        [6, str(approval_file) if approval_file else "(none)", "", "Nếu lần chạy này có dùng approval file, đường dẫn sẽ hiện ở đây. Muốn đổi ý thì sửa file đó hoặc chạy lại không kèm --approval-file."],
+        [7, str(output_path), "py -3 automate_kpi.py", "Chạy lại không có --approval-file để bỏ qua toàn bộ phê duyệt và tạo workbook mới từ template / nguồn dữ liệu."],
+        [8, str(output_path), "IT_Approval_Result / Project_Master_Approval_Result / Downstream_Approval_Result / Media_Approval_Result / SX_Approval_Result / SX_Downstream_Approval_Result / Vonhoa_Block_Approval_Result", "Workbook đầu ra tiếp theo sẽ có các sheet kết quả này để ghi trạng thái applied / skipped / failed."],
     ]
     for r, row in enumerate(rows, start=1):
         for c, value in enumerate(row, start=1):
@@ -761,76 +2129,76 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
 
     command_start = len(rows) + 3
     command_rows = [
-        ["Step", "When to use", "Command", "What it does", "Which file to edit/use"],
+        ["Bước", "Khi nào dùng", "Lệnh", "Chức năng", "File cần sửa / dùng"],
         [
             1,
-            "Create output from existing local raw input files",
+            "Tạo output từ các file raw local hiện có",
             "py -3 automate_kpi.py",
-            "Uses data/input/raw/IT.xlsx and data/input/raw/MEDIA.xlsx, writes Timesheet IT/Data media, creates checkpoint sheets, then opens the output workbook.",
-            "No approval file is needed. The newest output is also saved in data/output/final.",
+            "Dùng data/input/raw/IT.xlsx và data/input/raw/MEDIA.xlsx, ghi Timesheet IT / Data media, tạo các sheet checkpoint, rồi mở workbook output.",
+            "Không cần approval file. Output mới nhất cũng được lưu trong data/output/final.",
         ],
         [
             2,
-            "Download latest source files first, then automate",
+            "Tải file nguồn mới nhất rồi mới chạy",
             "py -3 automate_kpi.py --download",
-            "Downloads IT/MEDIA source XLSX files from config/sources.json, then creates output and checkpoints.",
-            "Use when Google Sheets/source files changed and local raw files need refresh.",
+            "Tải file IT / MEDIA từ config/sources.json, sau đó tạo output và checkpoint.",
+            "Dùng khi Google Sheets / file nguồn đã đổi và cần làm mới raw local.",
         ],
         [
             3,
-            "Review checkpoint and choose fixes",
-            "(edit workbook, no terminal command)",
-            "Open Check_IT_CPNS, IT_New_Project_Master, Check_IT_Downstream, and Check_Media_Timesheet. Put YES in Apply? only for rows you approve.",
-            f"Edit the approval source workbook shown in column B, usually {output_path}.",
+            "Xem checkpoint và chọn dòng cần sửa",
+            "(sửa workbook, không cần lệnh)",
+            "Mở Check_Payroll, checkpoint data SX và Check_SX_Downstream. Nếu mới thêm tháng SX thì hãy Refresh All trong Excel trước khi kiểm tra. Chỉ đặt YES ở Apply? cho các dòng bạn đồng ý duyệt.",
+            f"Sửa trực tiếp workbook approval ở cột B, thường là {output_path}.",
         ],
         [
             4,
-            "Apply approved fixes",
+            "Áp dụng các dòng đã duyệt",
             f'py -3 automate_kpi.py --approval-file "{output_path}"',
-            "Reads YES rows from the approval workbook, applies supported fixes, then creates a new output workbook.",
-            "The --approval-file path must point to the exact workbook where you entered YES.",
+            "Đọc các dòng YES từ workbook approval, áp dụng các thay đổi hợp lệ, rồi tạo workbook output mới. Nếu workbook approval vừa được cập nhật pivot/cache thì mở bằng Excel và Refresh All trước khi rerun.",
+            "Đường dẫn --approval-file phải trỏ đúng workbook bạn đã chỉnh YES.",
         ],
         [
             5,
-            "Download latest sources and apply approved fixes in one run",
+            "Tải nguồn mới và áp dụng phê duyệt trong cùng một lượt",
             f'py -3 automate_kpi.py --download --approval-file "{output_path}"',
-            "Refreshes raw IT/MEDIA files first, then applies approved fixes from the selected approval workbook.",
-            "Use carefully: approvals are read from the old workbook, data is refreshed from latest source.",
+            "Làm mới raw IT / MEDIA trước, sau đó áp dụng các phê duyệt từ workbook đã chọn.",
+            "Dùng cẩn thận: approval lấy từ workbook cũ, còn dữ liệu được refresh từ nguồn mới nhất.",
         ],
         [
             6,
-            "Change your mind and ignore all approvals",
+            "Đổi ý và bỏ qua toàn bộ phê duyệt",
             "py -3 automate_kpi.py",
-            "Creates a fresh output without reading any YES rows.",
-            "Do not pass --approval-file.",
+            "Tạo output mới mà không đọc bất kỳ dòng YES nào.",
+            "Không truyền --approval-file.",
         ],
         [
             7,
-            "Change your mind on selected rows",
-            "(edit workbook, then rerun command in step 4)",
-            "Change Apply? from YES to NO or blank for rows you no longer approve, then rerun with --approval-file.",
-            "Edit the same approval workbook before rerunning.",
+            "Đổi ý với một số dòng cụ thể",
+            "(sửa workbook, rồi chạy lại lệnh ở bước 4)",
+            "Đổi Apply? từ YES sang NO hoặc để trống cho những dòng bạn không còn muốn duyệt, rồi chạy lại với --approval-file.",
+            "Sửa lại chính workbook approval đó trước khi chạy lại.",
         ],
         [
             8,
-            "Check what was applied",
-            "(open output workbook)",
-            "Review IT_Approval_Result, Project_Master_Approval_Result, Downstream_Approval_Result, and Media_Approval_Result for applied/skipped/failed statuses.",
-            "Use the newest output workbook created after running --approval-file.",
+            "Kiểm tra những gì đã được áp dụng",
+            "(mở workbook output)",
+            "Xem IT_Approval_Result, Project_Master_Approval_Result, Downstream_Approval_Result, Media_Approval_Result, SX_Approval_Result, SX_Downstream_Approval_Result và Vonhoa_Block_Approval_Result để kiểm tra trạng thái applied / skipped / failed.",
+            "Dùng workbook output mới nhất được tạo sau khi chạy --approval-file.",
         ],
         [
             9,
-            "Run without opening output",
+            "Chạy mà không tự mở output",
             "py -3 automate_kpi.py --no-open",
-            "Creates output from local raw files but does not open the result workbook.",
-            "Use for scheduled/background runs.",
+            "Tạo output từ raw local nhưng không mở workbook kết quả.",
+            "Dùng cho chạy nền / theo lịch.",
         ],
         [
             10,
-            "Open output explicitly after run",
+            "Chủ động mở output sau khi chạy",
             "py -3 automate_kpi.py --open",
-            "Creates output from local raw files and opens the result workbook. This is now the default behavior.",
-            "No approval file is needed unless you also add --approval-file.",
+            "Tạo output từ raw local và mở workbook kết quả. Đây là hành vi mặc định.",
+            "Không cần approval file trừ khi bạn muốn chạy kèm --approval-file.",
         ],
     ]
     for r_offset, row in enumerate(command_rows, start=command_start):
@@ -839,856 +2207,43 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
 
     process_start = command_start + len(command_rows) + 3
     process_rows = [
-        ["Process", "Checkpoint sheet", "Action to approve", "What user should fill", "Result sheet"],
-        [
-            "IT mapping / cost formula",
-            "Check_IT_CPNS",
-            "CLEAN_COST_PROJECT_TEXT / FILL_COST_MONTH_FORMULA / ADD_COST_ROW",
-            "Put YES in Apply? only for rows with confirmed mismatch. ADD_COST_ROW needs an existing project row in Chi phi nhan su IT.",
-            "IT_Approval_Result",
-        ],
+        ["Quy trình", "Sheet checkpoint", "Hành động cần duyệt", "Người dùng cần điền", "Sheet kết quả"],
         [
             "Payroll sync",
             "Check_Payroll",
-            "No approval action",
-            "Script reads the OneDrive local file and replaces Lương nhân viên full time / Lương nhân viên part time in the output. Review source path, modified time, row counts, and duplicate Month+MNV warnings.",
+            "Không có hành động duyệt",
+            "Script đọc file OneDrive local và thay thế Lương nhân viên full time / Lương nhân viên part time trong output. Kiểm tra đường dẫn nguồn, thời gian chỉnh sửa, số dòng và cảnh báo trùng Month+MNV.",
             "Check_Payroll",
         ],
         [
-            "IT new project master",
-            "IT_New_Project_Master",
-            "ADD_PROJECT_MASTER_FIRST",
-            "Check Suggested project code, Suggested BU, System, then put YES. This adds catalog row and Chi phi nhan su IT rows for employees detected in Timesheet IT.",
-            "Project_Master_Approval_Result",
+            "SX thiếu MNV / duyệt source",
+            "checkpoint data SX",
+            "Giải quyết MNV và duyệt theo từng dòng",
+            "Cập nhật sheet Mã nhân viên nếu thiếu MNV, đặt Apply? cho các dòng muốn mang sang file mới, và ghi chú nếu cần. Không có bảng Missing MNV riêng; mọi dòng nằm trong Details.",
+            "SX_Approval_Result",
         ],
         [
-            "Carry forward approved IT project master",
-            "Project_Master_Approval_Result",
-            "CARRY_FORWARD_PROJECT_MASTER",
-            "If you use a previous output workbook as --approval-file, applied project master rows are copied forward automatically so Chi phi nhan su IT rows are not lost in the next output.",
-            "Project_Master_Approval_Result",
+            "SX downstream / duyệt downstream",
+            "Check_SX_Downstream",
+            "Giải quyết lỗi xuống dòng và duyệt theo từng dòng",
+            "Sửa các điểm rơi ở Data SX consol, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa theo Recommended action. Chỉ những project có mặt trong 3.Vốn hóa mới được tính downstream; project ngoài whitelist sẽ bị loại.",
+            "SX_Downstream_Approval_Result",
         ],
         [
-            "IT downstream",
-            "Check_IT_Downstream",
-            "ADD_TO_PROJECT_CATALOG / ADD_TO_CAPITALIZATION",
-            "Fill/confirm catalog metadata columns, then put YES. ADD_TO_CAPITALIZATION copies an existing IT row in 3.Von hoa and keeps translated formulas.",
-            "Downstream_Approval_Result",
-        ],
-        [
-            "IT checking MNV",
-            "Check_IT_Downstream",
-            "ADD_MNV_TO_IT_CHECKING",
-            "Review manually for now. The script reports this action but does not auto-add because Checking Von hoa IT needs a validated salary base row.",
-            "Downstream_Approval_Result",
-        ],
-        [
-            "Media source formula",
-            "Check_Media_Timesheet",
-            "FIX_MEDIA_WEIGHT_OR_MONTH",
-            "Put YES for Data media rows where month/weight formula can be repaired from source information.",
-            "Media_Approval_Result",
-        ],
-        [
-            "Ignore or undo approvals",
-            "Any checkpoint",
-            "NO / blank",
-            "Change Apply? to NO or blank before rerun. To ignore all approvals, run without --approval-file.",
-            "No approval result sheet is needed.",
+            "Vốn hóa / duyệt block tháng",
+            "Check_Vonhoa_Month_Block",
+            "Giải quyết block tháng bị thiếu trên 3.Vốn hóa",
+            "Nếu tháng mới chưa có block, đặt Apply? = YES để copy block tháng trước sang. Đây là checkpoint cấu trúc, cần duyệt trước khi downstream chạy đúng.",
+            "Vonhoa_Block_Approval_Result",
         ],
     ]
     for r_offset, row in enumerate(process_rows, start=process_start):
         for c, value in enumerate(row, start=1):
             ws.cell(r_offset, c).value = value
 
-    ws.column_dimensions["A"].width = 10
-    ws.column_dimensions["B"].width = 80
-    ws.column_dimensions["C"].width = 80
-    ws.column_dimensions["D"].width = 110
-    ws.column_dimensions["E"].width = 90
-
-
-def numeric(value: Any) -> float:
-    if is_num(value):
-        return float(value)
-    return 0.0
-
-
-def month_number(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if is_num(value) and int(value) == value and 1 <= int(value) <= 12:
-        return int(value)
-    return None
-
-
-def find_sheet(wb, sheet_name: str):
-    if sheet_name in wb.sheetnames:
-        return wb[sheet_name]
-    target = norm(sheet_name)
-    for ws in wb.worksheets:
-        if norm(ws.title) == target:
-            return ws
-    return None
-
-
-def project_exists_in_column(ws, project: Any, col: int, start_row: int = 1) -> bool:
-    target = clean(project)
-    if target is None:
-        return False
-    for r in range(start_row, ws.max_row + 1):
-        if clean(ws.cell(r, col).value) == target:
-            return True
-    return False
-
-
-def find_project_code_in_cost(cost, project: Any) -> Any:
-    if cost is None:
-        return None
-    target = clean(project)
-    for r in range(3, cost.max_row + 1):
-        if clean(cost.cell(r, 2).value) == target:
-            return cost.cell(r, 1).value
-    return None
-
-
-def next_it_project_code(wb) -> str:
-    max_num = 2600
-    code_re = re.compile(r"^IT(\d+)$", re.I)
-    for ws_name, col in [(SHEET_PROJECT_CATALOG, 2), (SHEET_IT_COST, 1)]:
-        ws = find_sheet(wb, ws_name)
-        if ws is None:
-            continue
-        for r in range(1, ws.max_row + 1):
-            value = clean(ws.cell(r, col).value)
-            if not value:
-                continue
-            match = code_re.match(str(value))
-            if match:
-                max_num = max(max_num, int(match.group(1)))
-    return f"IT{max_num + 1}"
-
-
-def collect_it_source_projects(ts) -> dict[str, dict[str, Any]]:
-    projects: dict[str, dict[str, Any]] = {}
-    for r in range(IT_HEADER_ROW + 2, ts.max_row + 1):
-        month = month_number(ts.cell(r, 5).value)
-        project = clean(ts.cell(r, 2).value)
-        if month is None or not project:
-            continue
-        row_total = 0.0
-        employees = []
-        for c in range(6, min(ts.max_column, 26) + 1):
-            value = numeric(ts.cell(r, c).value)
-            if not value:
-                continue
-            row_total += value
-            employees.append(str(ts.cell(IT_HEADER_ROW + 1, c).value or get_column_letter(c)))
-        if not row_total:
-            continue
-        item = projects.setdefault(
-            str(project),
-            {
-                "project": project,
-                "system": clean(ts.cell(r, 4).value),
-                "months": set(),
-                "employees": set(),
-                "rows": [],
-                "total": 0.0,
-            },
-        )
-        if not item.get("system") and clean(ts.cell(r, 4).value):
-            item["system"] = clean(ts.cell(r, 4).value)
-        item["months"].add(month)
-        item["employees"].update(employees)
-        item["rows"].append(r)
-        item["total"] += row_total
-    return projects
-
-
-def write_it_new_project_master_sheet(wb) -> None:
-    ts = find_sheet(wb, SHEET_IT)
-    cost = find_sheet(wb, SHEET_IT_COST)
-    catalog = find_sheet(wb, SHEET_PROJECT_CATALOG)
-    if ts is None:
-        return
-
-    rows: list[list[Any]] = []
-    next_code_num = int(next_it_project_code(wb).replace("IT", ""))
-    for item in sorted(collect_it_source_projects(ts).values(), key=lambda x: str(x["project"])):
-        exists_in_cost = project_exists_in_column(cost, item["project"], 2, 3) if cost is not None else False
-        exists_in_catalog = project_exists_in_column(catalog, item["project"], 3, 2) if catalog is not None else False
-        if exists_in_cost and exists_in_catalog:
-            continue
-
-        existing_cost_code = find_project_code_in_cost(cost, item["project"])
-        if existing_cost_code:
-            suggested_code = existing_cost_code
-        else:
-            suggested_code = f"IT{next_code_num}"
-            next_code_num += 1
-        months = sorted(item["months"])
-        issue_parts = []
-        if not exists_in_catalog:
-            issue_parts.append("missing in 1.Danh mục dự án")
-        if not exists_in_cost:
-            issue_parts.append("missing in Chi phí nhân sự IT")
-        rows.append(
-            [
-                "Timesheet IT",
-                item["project"],
-                item.get("system"),
-                suggested_code,
-                "SAPP",
-                min(months) if months else None,
-                max(months) if months else None,
-                ", ".join(sorted(item["employees"])),
-                ", ".join(str(r) for r in item["rows"]),
-                item["total"],
-                exists_in_cost,
-                exists_in_catalog,
-                "; ".join(issue_parts),
-                "ADD_PROJECT_MASTER_FIRST",
-                None,
-                None,
-            ]
-        )
-
-    ws = reset_sheet(wb, "IT_New_Project_Master")
-    append_table(
-        ws,
-        1,
-        "New Project Master Required",
-        [
-            "Project source",
-            "Project name",
-            "System",
-            "Suggested project code",
-            "Suggested BU",
-            "Start month",
-            "End month",
-            "Employees detected",
-            "Timesheet rows",
-            "Total input %",
-            "Exists in Chi phí nhân sự IT",
-            "Exists in 1.Danh mục dự án",
-            "Issue",
-            "Recommended action",
-            "Apply?",
-            "Approval notes",
-        ],
-        rows,
-    )
     ws.freeze_panes = "A3"
-    for col, width in {"A": 18, "B": 60, "C": 24, "D": 22, "H": 80, "I": 24, "M": 42, "N": 28}.items():
+    for col, width in {"A": 12, "B": 54, "C": 28, "D": 72, "E": 60}.items():
         ws.column_dimensions[col].width = width
-
-
-def collect_it_cost_projects(cost) -> dict[str, dict[str, Any]]:
-    projects: dict[str, dict[str, Any]] = {}
-    for r in range(3, cost.max_row + 1):
-        code = clean(cost.cell(r, 1).value)
-        project = clean(cost.cell(r, 2).value)
-        if not code or not project:
-            continue
-        item = projects.setdefault(
-            str(code),
-            {
-                "code": code,
-                "project": project,
-                "system": clean(cost.cell(r, 3).value),
-                "bu": clean(cost.cell(r, 6).value),
-                "mnvs": set(),
-                "cost_rows": [],
-            },
-        )
-        if not item.get("system") and clean(cost.cell(r, 3).value):
-            item["system"] = clean(cost.cell(r, 3).value)
-        if not item.get("bu") and clean(cost.cell(r, 6).value):
-            item["bu"] = clean(cost.cell(r, 6).value)
-        mnv = clean(cost.cell(r, 7).value)
-        if mnv:
-            item["mnvs"].add(str(mnv))
-        item["cost_rows"].append(r)
-    return projects
-
-
-def values_in_column(ws, col: int, start_row: int = 1) -> set[str]:
-    if ws is None:
-        return set()
-    result: set[str] = set()
-    for r in range(start_row, ws.max_row + 1):
-        value = clean(ws.cell(r, col).value)
-        if value is not None:
-            result.add(str(value))
-    return result
-
-
-def collect_capitalization_projects(ws) -> dict[str, dict[str, Any]]:
-    projects: dict[str, dict[str, Any]] = {}
-    if ws is None:
-        return projects
-    for r in range(3, ws.max_row + 1):
-        code = clean(ws.cell(r, 2).value)
-        if not code:
-            continue
-        projects[str(code)] = {
-            "row": r,
-            "year": ws.cell(r, 1).value,
-            "project": ws.cell(r, 3).value,
-            "bu": ws.cell(r, 4).value,
-            "classification": ws.cell(r, 5).value,
-            "start": ws.cell(r, 6).value,
-            "end": ws.cell(r, 7).value,
-        }
-    return projects
-
-
-def write_it_downstream_checkpoint_sheet(wb) -> None:
-    cost = find_sheet(wb, SHEET_IT_COST)
-    if cost is None:
-        return
-
-    catalog = find_sheet(wb, SHEET_PROJECT_CATALOG)
-    checking = find_sheet(wb, SHEET_IT_CHECKING)
-    capitalization = find_sheet(wb, SHEET_CAPITALIZATION)
-
-    projects = collect_it_cost_projects(cost)
-    catalog_codes = values_in_column(catalog, 2, 2)
-    capitalization_codes = values_in_column(capitalization, 2, 3)
-    capitalization_projects = collect_capitalization_projects(capitalization)
-    checking_mnvs = values_in_column(checking, 1, 4)
-
-    detail_rows: list[list[Any]] = []
-    missing_catalog = 0
-    missing_capitalization = 0
-    projects_with_missing_checking_mnvs = 0
-
-    for item in sorted(projects.values(), key=lambda x: str(x["code"])):
-        code = str(item["code"])
-        cap_meta = capitalization_projects.get(code, {})
-        mnvs = sorted(item["mnvs"])
-        missing_mnvs = [mnv for mnv in mnvs if mnv not in checking_mnvs]
-        exists_catalog = code in catalog_codes
-        exists_capitalization = code in capitalization_codes
-        if not exists_catalog:
-            missing_catalog += 1
-        if not exists_capitalization:
-            missing_capitalization += 1
-        if missing_mnvs:
-            projects_with_missing_checking_mnvs += 1
-
-        issue_parts = []
-        actions = []
-        if not exists_catalog:
-            issue_parts.append("missing in 1.Danh mục dự án")
-            actions.append("ADD_TO_PROJECT_CATALOG")
-        if not exists_capitalization:
-            issue_parts.append("missing in 3.Vốn hóa")
-            actions.append("ADD_TO_CAPITALIZATION")
-        if missing_mnvs:
-            issue_parts.append("missing MNV in Checking Vốn hóa IT")
-            actions.append("ADD_MNV_TO_IT_CHECKING")
-
-        if not issue_parts:
-            continue
-
-        detail_rows.append(
-            [
-                code,
-                item["project"],
-                item.get("system"),
-                item.get("bu"),
-                cap_meta.get("year") or 2026,
-                item.get("bu") or cap_meta.get("bu") or "SAPP",
-                cap_meta.get("classification"),
-                cap_meta.get("start"),
-                cap_meta.get("end"),
-                True,
-                ", ".join(str(r) for r in item["cost_rows"]),
-                ", ".join(mnvs),
-                exists_catalog,
-                exists_capitalization,
-                len(missing_mnvs),
-                ", ".join(missing_mnvs),
-                "; ".join(issue_parts),
-                "; ".join(actions),
-                None,
-                None,
-            ]
-        )
-
-    summary_rows = [
-        ["Projects in Chi phí nhân sự IT", len(projects)],
-        ["Missing in 1.Danh mục dự án", missing_catalog],
-        ["Missing in 3.Vốn hóa", missing_capitalization],
-        ["Projects with MNV missing in Checking Vốn hóa IT", projects_with_missing_checking_mnvs],
-    ]
-
-    ws = reset_sheet(wb, "Check_IT_Downstream")
-    next_row = append_table(ws, 1, "Summary", ["Metric", "Count"], summary_rows)
-    append_table(
-        ws,
-        next_row,
-        "Details",
-        [
-            "Project code",
-            "Project name",
-            "System",
-            "BU",
-            "Catalog year",
-            "Catalog BU",
-            "Catalog classification",
-            "Catalog start date",
-            "Catalog end date",
-            "Catalog capitalization flag",
-            "Chi phí nhân sự IT rows",
-            "MNVs in cost",
-            "Exists in 1.Danh mục dự án",
-            "Exists in 3.Vốn hóa",
-            "Missing Checking MNV count",
-            "Missing Checking MNVs",
-            "Issue",
-            "Recommended action",
-            "Apply?",
-            "Approval notes",
-        ],
-        detail_rows,
-    )
-    ws.freeze_panes = "A3"
-    for col, width in {"A": 22, "B": 60, "E": 14, "F": 16, "G": 22, "K": 24, "L": 80, "P": 40, "Q": 42, "R": 52}.items():
-        ws.column_dimensions[col].width = width
-
-
-def write_it_checkpoint_sheet(wb) -> None:
-    ts = find_sheet(wb, SHEET_IT)
-    cost = find_sheet(wb, SHEET_IT_COST)
-    if ts is None or cost is None:
-        return
-
-    source: dict[tuple[int, str, int], dict[str, Any]] = {}
-    for r in range(IT_HEADER_ROW + 2, ts.max_row + 1):
-        month = month_number(ts.cell(r, 5).value)
-        if month is None:
-            continue
-        project = ts.cell(r, 2).value
-        if not project:
-            continue
-        for c in range(6, min(ts.max_column, 26) + 1):
-            value = numeric(ts.cell(r, c).value)
-            if not value:
-                continue
-            key = (month, str(project), c)
-            item = source.setdefault(
-                key,
-                {
-                    "month": month,
-                    "project": project,
-                    "employee_col": c,
-                    "employee": ts.cell(IT_HEADER_ROW + 1, c).value,
-                    "rows": [],
-                    "value": 0.0,
-                },
-            )
-            item["value"] += value
-            item["rows"].append(r)
-
-    processed: dict[tuple[int, str, int], float] = {}
-    clean_candidates: dict[tuple[int, str, int], list[tuple[int, str]]] = {}
-    sum_col_re = re.compile(r"'Timesheet IT'!\$([A-Z]+):\$\1")
-    for r in range(3, cost.max_row + 1):
-        raw_project = cost.cell(r, 2).value
-        if not raw_project:
-            continue
-        for c in range(1, cost.max_column + 1):
-            month = month_number(cost.cell(1, c).value)
-            if month is None:
-                continue
-            formula = cost.cell(r, c).value
-            if not isinstance(formula, str) or "SUMIFS" not in formula or "Timesheet IT" not in formula:
-                continue
-            match = sum_col_re.search(formula)
-            if not match:
-                continue
-            sum_col = column_letters_to_number(match.group(1))
-            exact_total = 0.0
-            for tr in range(1, ts.max_row + 1):
-                if ts.cell(tr, 2).value == raw_project and ts.cell(tr, 5).value == month:
-                    exact_total += numeric(ts.cell(tr, sum_col).value)
-            processed[(month, str(raw_project), sum_col)] = processed.get((month, str(raw_project), sum_col), 0.0) + exact_total
-            clean_candidates.setdefault((month, str(clean(raw_project)), sum_col), []).append((r, str(raw_project)))
-
-    summary_rows: list[list[Any]] = []
-    detail_rows: list[list[Any]] = []
-    all_months = range(1, 13)
-    for month in all_months:
-        input_total = sum(item["value"] for key, item in source.items() if key[0] == month)
-        processed_total = sum(value for key, value in processed.items() if key[0] == month)
-        summary_rows.append([month, input_total, processed_total, processed_total - input_total])
-
-    for key, item in sorted(source.items(), key=lambda kv: (kv[0][0], str(kv[0][1]), kv[0][2])):
-        month, project, employee_col = key
-        output = processed.get(key, 0.0)
-        diff = output - item["value"]
-        if abs(diff) < 1e-9:
-            continue
-        cleaned_key = (month, str(clean(project)), employee_col)
-        candidates = clean_candidates.get(cleaned_key, [])
-        existing_cost_row = find_cost_row_by_project_and_sum_col(cost, project, employee_col)
-        issue = "missing row/formula in Chi phí nhân sự IT"
-        recommended_action = "ADD_COST_ROW"
-        if find_cost_project_sample_row(cost, project) is None:
-            issue = "new project master required"
-            recommended_action = "ADD_PROJECT_MASTER_FIRST"
-        if existing_cost_row:
-            issue = "missing month formula in Chi phí nhân sự IT"
-            recommended_action = "FILL_COST_MONTH_FORMULA"
-        if candidates:
-            issue = "criteria text mismatch, likely whitespace"
-            recommended_action = "CLEAN_COST_PROJECT_TEXT"
-        detail_rows.append(
-            [
-                month,
-                item["project"],
-                item["employee"],
-                get_column_letter(employee_col),
-                ", ".join(str(r) for r in item["rows"]),
-                item["value"],
-                output,
-                diff,
-                ", ".join(str(row) for row, _ in candidates),
-                candidates[0][1] if candidates else None,
-                bool(candidates),
-                issue,
-                recommended_action,
-                None,
-                None,
-            ]
-        )
-
-    employee_month_totals: dict[tuple[int, str], dict[str, Any]] = {}
-    for r in range(3, cost.max_row + 1):
-        mnv = cost.cell(r, 7).value
-        employee = cost.cell(r, 8).value
-        if not mnv and not employee:
-            continue
-        employee_key = str(mnv or employee)
-        for c in range(1, cost.max_column + 1):
-            month = month_number(cost.cell(1, c).value)
-            if month is None:
-                continue
-            formula = cost.cell(r, c).value
-            if not isinstance(formula, str) or "SUMIFS" not in formula or "Timesheet IT" not in formula:
-                continue
-            total = processed.get((month, str(cost.cell(r, 2).value), column_from_it_sumifs(formula)), 0.0)
-            item = employee_month_totals.setdefault(
-                (month, employee_key),
-                {"month": month, "mnv": mnv, "employee": employee, "value": 0.0, "cost_rows": []},
-            )
-            item["value"] += total
-            if total:
-                item["cost_rows"].append(r)
-
-    overload_rows = [
-        [
-            item["month"],
-            item["mnv"],
-            item["employee"],
-            item["value"],
-            item["value"] - 1,
-            ", ".join(str(r) for r in sorted(set(item["cost_rows"]))),
-            "over 100%",
-        ]
-        for item in sorted(employee_month_totals.values(), key=lambda x: (x["month"], str(x["mnv"] or x["employee"])))
-        if item["value"] > 1 + 1e-9
-    ]
-
-    ws = reset_sheet(wb, "Check_IT_CPNS")
-    next_row = append_table(
-        ws,
-        1,
-        "Summary",
-        ["Month", "Input Timesheet IT", "Processed Chi phí nhân sự IT", "Diff"],
-        summary_rows,
-    )
-    append_table(
-        ws,
-        next_row,
-        "Details",
-        [
-            "Month",
-            "Project",
-            "Employee",
-            "Employee column",
-            "Timesheet rows",
-            "Input value",
-            "Processed value",
-            "Diff",
-            "Cost rows matched after clean",
-            "Cost project sample",
-            "Matched after clean",
-            "Issue",
-            "Recommended action",
-            "Apply?",
-            "Approval notes",
-        ],
-        detail_rows,
-    )
-    append_table(
-        ws,
-        ws.max_row + 3,
-        "Employee Month Over 100%",
-        ["Month", "MNV", "Employee", "Total % work", "Over by", "Cost rows", "Issue"],
-        overload_rows,
-    )
-    ws.freeze_panes = "A3"
-    for col, width in {"A": 12, "B": 60, "C": 24, "E": 18, "I": 24, "J": 60, "L": 36}.items():
-        ws.column_dimensions[col].width = width
-
-
-def column_from_it_sumifs(formula: Any) -> int | None:
-    if not isinstance(formula, str):
-        return None
-    match = re.search(r"'Timesheet IT'!\$([A-Z]+):\$\1", formula)
-    if not match:
-        return None
-    return column_letters_to_number(match.group(1))
-
-
-def column_letters_to_number(letters: str) -> int:
-    total = 0
-    for ch in letters:
-        total = total * 26 + ord(ch.upper()) - ord("A") + 1
-    return total
-
-
-def media_standard_hours(wb, month: Any, mnv: Any) -> float | None:
-    salary = find_sheet(wb, SHEET_SALARY_FULLTIME)
-    if salary is None or not month or not mnv:
-        return None
-    for r in range(1, salary.max_row + 1):
-        if salary.cell(r, 1).value == month and salary.cell(r, 5).value == mnv:
-            value = salary.cell(r, 33).value
-            if is_num(value) and value:
-                return float(value)
-            working_days = salary.cell(r, 14).value
-            extra_hours = salary.cell(r, 20).value
-            if is_num(working_days):
-                return float(working_days) * 8 + numeric(extra_hours)
-    return None
-
-
-def media_weight_value(wb, data_ws, row: int) -> tuple[float | None, str | None]:
-    weight = data_ws.cell(row, 9).value
-    if is_num(weight):
-        return float(weight), None
-    hours = data_ws.cell(row, 4).value
-    month = month_number(data_ws.cell(row, 5).value)
-    mnv = data_ws.cell(row, 7).value
-    standard_hours = media_standard_hours(wb, month, mnv)
-    if is_num(hours) and standard_hours:
-        issue = None
-        if not weight:
-            issue = "missing weight formula/value in Data media"
-        return float(hours) / standard_hours, issue
-    if is_num(hours) and month and mnv and not standard_hours:
-        return None, "missing salary standard hours for media employee/month"
-    if any([hours, month, mnv, data_ws.cell(row, 2).value]):
-        return None, "cannot compute media weight"
-    return None, None
-
-
-def write_media_checkpoint_sheet(wb) -> None:
-    data_ws = find_sheet(wb, SHEET_MEDIA)
-    media_ws = find_sheet(wb, SHEET_TIMESHEET_MEDIA)
-    if data_ws is None or media_ws is None:
-        return
-
-    source: dict[tuple[Any, str, str], dict[str, Any]] = {}
-    source_issues: list[list[Any]] = []
-    for r in range(MEDIA_TEMPLATE_ROW, data_ws.max_row + 1):
-        project = data_ws.cell(r, 2).value
-        month = month_number(data_ws.cell(r, 5).value)
-        mnv = data_ws.cell(r, 7).value
-        employee = data_ws.cell(r, 6).value
-        if not any([project, month, mnv, data_ws.cell(r, 4).value]):
-            continue
-        value, issue = media_weight_value(wb, data_ws, r)
-        if issue:
-            source_issues.append(
-                [
-                    r,
-                    project,
-                    month,
-                    employee,
-                    mnv,
-                    data_ws.cell(r, 4).value,
-                    data_ws.cell(r, 9).value,
-                    issue,
-                    "FIX_MEDIA_WEIGHT_OR_MONTH",
-                    None,
-                    None,
-                ]
-            )
-        if value is None or not project or not mnv or not month:
-            continue
-        key = (month, str(project), str(mnv))
-        item = source.setdefault(
-            key,
-            {"month": month, "project": project, "employee": employee, "mnv": mnv, "rows": [], "value": 0.0},
-        )
-        item["value"] += value
-        item["rows"].append(r)
-
-    target_rows: dict[tuple[int, str, str], list[int]] = {}
-    clean_target_rows: dict[tuple[int, str, str], list[int]] = {}
-    for r in range(4, media_ws.max_row + 1):
-        project = media_ws.cell(r, 4).value
-        mnv = media_ws.cell(r, 6).value
-        if not project or not mnv:
-            continue
-        for c in range(9, min(media_ws.max_column, 20) + 1):
-            month = month_number(media_ws.cell(1, c).value)
-            formula = media_ws.cell(r, c).value
-            if month and isinstance(formula, str) and "Data media ACCA+CFA+CMA" in formula:
-                target_rows.setdefault((month, str(project), str(mnv)), []).append(r)
-                clean_target_rows.setdefault((month, str(clean(project)), str(mnv)), []).append(r)
-
-    summary_rows: list[list[Any]] = []
-    detail_rows: list[list[Any]] = []
-    for month in range(1, 13):
-        input_total = sum(item["value"] for key, item in source.items() if key[0] == month)
-        processed_total = sum(item["value"] for key, item in source.items() if key[0] == month and key in target_rows)
-        summary_rows.append([month, input_total, processed_total, processed_total - input_total])
-
-    for key, item in sorted(source.items(), key=lambda kv: (str(kv[0][0]), str(kv[0][1]), str(kv[0][2]))):
-        if key in target_rows:
-            continue
-        cleaned_key = (key[0], str(clean(key[1])), key[2])
-        clean_rows = sorted(set(clean_target_rows.get(cleaned_key, [])))
-        issue = "missing row/formula in Timesheet Media"
-        recommended_action = "ADD_TIMESHEET_MEDIA_ROW"
-        if clean_rows:
-            issue = "criteria text mismatch, likely whitespace"
-            recommended_action = "CLEAN_MEDIA_PROJECT_TEXT"
-        detail_rows.append(
-            [
-                item["month"],
-                item["project"],
-                item["employee"],
-                item["mnv"],
-                ", ".join(str(r) for r in item["rows"]),
-                item["value"],
-                0,
-                -item["value"],
-                None,
-                ", ".join(str(r) for r in clean_rows),
-                bool(clean_rows),
-                issue,
-                recommended_action,
-                None,
-                None,
-            ]
-        )
-
-    employee_month_totals: dict[tuple[int, str], dict[str, Any]] = {}
-    for key, item in source.items():
-        if key not in target_rows:
-            continue
-        employee_key = str(item["mnv"] or item["employee"])
-        month = int(item["month"])
-        total_item = employee_month_totals.setdefault(
-            (month, employee_key),
-            {"month": month, "mnv": item["mnv"], "employee": item["employee"], "value": 0.0, "timesheet_rows": []},
-        )
-        total_item["value"] += item["value"]
-        total_item["timesheet_rows"].extend(target_rows.get(key, []))
-
-    overload_rows = [
-        [
-            item["month"],
-            item["mnv"],
-            item["employee"],
-            item["value"],
-            item["value"] - 1,
-            ", ".join(str(r) for r in sorted(set(item["timesheet_rows"]))),
-            "over 100%",
-        ]
-        for item in sorted(employee_month_totals.values(), key=lambda x: (x["month"], str(x["mnv"] or x["employee"])))
-        if item["value"] > 1 + 1e-9
-    ]
-
-    ws = reset_sheet(wb, "Check_Media_Timesheet")
-    next_row = append_table(
-        ws,
-        1,
-        "Summary",
-        ["Month", "Input Data media", "Processed Timesheet Media", "Diff"],
-        summary_rows,
-    )
-    next_row = append_table(
-        ws,
-        next_row,
-        "Details",
-        [
-            "Month",
-            "Project",
-            "Employee",
-            "MNV",
-            "Data media rows",
-            "Input value",
-            "Processed value",
-            "Diff",
-            "Timesheet Media rows matched exact",
-            "Timesheet Media rows matched after clean",
-            "Matched after clean",
-            "Issue",
-            "Recommended action",
-            "Apply?",
-            "Approval notes",
-        ],
-        detail_rows,
-    )
-    next_row = append_table(
-        ws,
-        next_row,
-        "Source Issues",
-        [
-            "Data media row",
-            "Project",
-            "Month",
-            "Employee",
-            "MNV",
-            "Hours",
-            "Weight value/formula",
-            "Issue",
-            "Recommended action",
-            "Apply?",
-            "Approval notes",
-        ],
-        source_issues,
-    )
-    append_table(
-        ws,
-        next_row,
-        "Employee Month Over 100%",
-        ["Month", "MNV", "Employee", "Total % work", "Over by", "Timesheet Media rows", "Issue"],
-        overload_rows,
-    )
-    ws.freeze_panes = "A3"
-    for col, width in {"A": 14, "B": 42, "C": 24, "D": 16, "E": 18, "J": 28, "L": 34, "M": 28}.items():
-        ws.column_dimensions[col].width = width
-
-
-def approval_value_is_yes(value: Any) -> bool:
-    return norm(value) in APPROVAL_YES_VALUES
-
-
-def find_section_header(ws, section_name: str) -> int | None:
-    for r in range(1, ws.max_row + 1):
-        if ws.cell(r, 1).value == section_name:
-            return r + 1
-    return None
 
 
 def read_it_mapping_approvals(path: Path) -> list[dict[str, Any]]:
@@ -2134,6 +2689,10 @@ def bool_value(value: Any, default: bool = True) -> bool:
     return default
 
 
+def approval_value_is_yes(value: Any) -> bool:
+    return bool_value(value, default=False)
+
+
 def apply_add_to_project_catalog(catalog, approval: dict[str, Any]) -> str:
     code = clean(approval.get("project_code"))
     project = clean(approval.get("project_name"))
@@ -2523,6 +3082,8 @@ def run(
     it_url: str | None = None,
     media_url: str | None = None,
     approval_file: Path | None = None,
+    sx_year: int = 2026,
+    sx_month: int = 4,
 ) -> Path:
     setup_dirs()
     sources = load_source_config()
@@ -2531,6 +3092,7 @@ def run(
     if media_url:
         sources["MEDIA"]["url"] = media_url
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    approval_source_wb = None
 
     print("=" * 60)
     print(f"Von hoa chi phi nhan su 2026 - {datetime.now():%d/%m/%Y %H:%M}")
@@ -2541,6 +3103,18 @@ def run(
         download_all(sources)
     else:
         print("[1/4] Using local files in data/input/raw")
+
+    print(f"[1.5/4] Building SX staging for {sx_year}-{sx_month:02d}...")
+    sx_config = sx_merge.load_source_config()
+    sx_paths = sx_merge.refresh_source_files_strict(sx_config)
+    sx_rows_raw, sx_warnings = sx_merge.collect_rows_for_month(sx_paths, sx_year, sx_month)
+    sx_output = sx_merge.output_path_for_month(sx_year, sx_month)
+    sx_output = sx_merge.write_output_workbook(sx_rows_raw, sx_output)
+    sx_rows = [normalize_sx_row(row) for row in sx_rows_raw]
+    print(f"  SX staging <- {sx_output}")
+    print(f"  SX staging rows <- {len(sx_rows)}")
+    for warning in sx_warnings:
+        print(f"  SX warning: {warning}")
 
     missing = [k for k, meta in sources.items() if not (DIRS["raw"] / meta["file"]).exists()]
     if missing:
@@ -2561,7 +3135,14 @@ def run(
         )
 
     template_wb = load_workbook(template)
-    employee_lookup = build_employee_lookup(template_wb)
+    if approval_file is not None and approval_file.exists():
+        try:
+            approval_source_wb = load_workbook(approval_file, data_only=False)
+        except Exception as exc:
+            print(f"  approval workbook could not be opened for SX lookup: {exc}")
+
+    employee_lookup_source = approval_source_wb if approval_source_wb and SHEET_EMPLOYEE in approval_source_wb.sheetnames else template_wb
+    employee_lookup = build_employee_lookup(employee_lookup_source)
 
     it_source = DIRS["raw"] / sources["IT"]["file"]
     media_source = DIRS["raw"] / sources["MEDIA"]["file"]
@@ -2584,6 +3165,8 @@ def run(
         wb.calculation.forceFullCalc = True
     except Exception:
         pass
+    if approval_source_wb is not None and SHEET_EMPLOYEE in approval_source_wb.sheetnames and SHEET_EMPLOYEE in wb.sheetnames:
+        copy_sheet_content(approval_source_wb[SHEET_EMPLOYEE], wb[SHEET_EMPLOYEE])
     written_it = False
     written_media = False
     payroll_rows = sync_payroll_from_onedrive(wb)
@@ -2620,14 +3203,40 @@ def run(
         apply_media_approvals(wb, approval_file)
         print(f"  applied approvals from {approval_file}")
 
-    write_it_checkpoint_sheet(wb)
-    write_it_new_project_master_sheet(wb)
-    write_it_downstream_checkpoint_sheet(wb)
-    write_media_checkpoint_sheet(wb)
+    if SHEET_SX_TARGET in wb.sheetnames:
+        sx_append_rows, sx_skipped_rows = append_sx_to_template(wb, sx_rows, employee_lookup, sx_year, sx_month)
+        print(f"  appended SX rows to {SHEET_SX_TARGET}: {sx_append_rows} kept, {sx_skipped_rows} skipped")
+    else:
+        print(f"  missing sheet: {SHEET_SX_TARGET}")
+
+    apply_sx_approvals(wb, approval_file, employee_lookup)
+
+    if SHEET_CAPITALIZATION in wb.sheetnames:
+        cap_ws = wb[SHEET_CAPITALIZATION]
+        cap_summary, cap_details = build_capitalization_month_checkpoint(cap_ws, sx_month)
+        write_capitalization_month_checkpoint_sheet(wb, cap_summary, cap_details)
+        apply_capitalization_month_approvals(wb, approval_file)
+        print("  wrote checkpoint sheet: Check_Vonhoa_Month_Block")
+
+    if SHEET_SX_DOWNSTREAM_CHECKPOINT in wb.sheetnames:
+        ws = wb[SHEET_SX_DOWNSTREAM_CHECKPOINT]
+        ws.delete_rows(1, ws.max_row)
+    sx_downstream_summary, sx_downstream_details = build_sx_downstream_checkpoint_data(
+        wb,
+        sx_rows,
+        sx_year,
+        sx_month,
+        employee_lookup,
+    )
+    write_sx_downstream_checkpoint_sheet(wb, sx_downstream_summary, sx_downstream_details)
+    apply_sx_downstream_approvals(wb, approval_file)
+
+    restore_checkpoint_sheets_from_previous_output(wb, output_path)
     write_approval_guide_sheet(wb, output_path, approval_file)
-    print("  wrote checkpoint sheets: Check_Payroll, Check_IT_CPNS, IT_New_Project_Master, Check_IT_Downstream, Check_Media_Timesheet")
+    print("  wrote checkpoint sheets: Check_Payroll, Check_IT_CPNS, IT_New_Project_Master, Check_IT_Downstream, Check_Media_Timesheet, checkpoint data SX, Check_SX_Downstream, Check_Vonhoa_Month_Block")
 
     wb.save(output_path)
+    patch_pivot_refresh_flags(output_path)
 
     print("[4/4] Writing staging files...")
     try:
@@ -2673,6 +3282,8 @@ def main() -> None:
     parser.add_argument("--no-open", action="store_false", dest="open_after", help="Do not open the result workbook after finishing")
     parser.add_argument("--it-url", dest="it_url", help="Override the IT source URL for this run")
     parser.add_argument("--media-url", dest="media_url", help="Override the media source URL for this run")
+    parser.add_argument("--sx-year", type=int, default=2026, help="Year to export for SX staging, default is 2026")
+    parser.add_argument("--sx-month", type=int, default=4, help="Month to export for SX staging, default is 4")
     parser.add_argument(
         "--approval-file",
         type=Path,
@@ -2685,8 +3296,11 @@ def main() -> None:
         it_url=args.it_url,
         media_url=args.media_url,
         approval_file=args.approval_file,
+        sx_year=args.sx_year,
+        sx_month=args.sx_month,
     )
 
 
 if __name__ == "__main__":
     main()
+
