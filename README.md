@@ -1,84 +1,138 @@
 # KPI Google Sheets to OneDrive Automation
 
-Automation nay tai 2 nguon du lieu tu Google Sheets:
+Automation này đồng bộ dữ liệu từ Google Sheets và file approval local vào workbook template
+`Vốn hóa chi phí nhân sự 2026.xlsx`.
+
+Pipeline hiện tại bao gồm 3 luồng chính:
 
 - `IT`
-- `media`
+- `Media`
+- `SX`
 
-Ket qua duoc ghi vao workbook template `von hoa chi phi nhan su` trong `data/output/final`.
+Kết quả cuối cùng được ghi vào `data/output/final`.
 
 ## Current Scope
 
-Phiên ban hien tai chi xu ly:
+Phiên bản hiện tại xử lý:
 
 - `Timesheet IT`
 - `Data media ACCA+CFA+CMA`
+- `Data SX ACCA+CMA`
+- `SX_Allocation_Build`
+- `Timesheet SX`
+- `4.1 Chi phí nhân sự SX`
+- `3.Vốn hóa`
 
-Nhom SX/KPI cu da duoc loai bo khoi pipeline.
+`Data SX consol` đã được loại khỏi flow SX.  
+Luồng SX hiện đi theo:
+
+`Data SX ACCA+CMA -> SX_Allocation_Build -> Timesheet SX -> 4.1 Chi phí nhân sự SX -> 3.Vốn hóa`
 
 ## Input
 
-Input duoc cau hinh trong:
+Input được cấu hình trong:
 
 ```text
 config/sources.json
 ```
 
-Moi source co:
+Mỗi source có:
 
 - `url`: Google Sheet URL
-- `file`: ten file xlsx luu trong `data/input/raw`
-- `type`: `matrix` cho IT, `task_table` cho media
+- `file`: tên file xlsx lưu trong `data/input/raw`
+- `type`: kiểu source tương ứng
 
-Khi chay voi `--download`, script se doi Google Sheet URL sang link export `.xlsx` va luu file vao:
+Khi chạy với `--download`, script sẽ tải source từ Google Sheets và lưu file vào:
 
 ```text
-data/input/raw/IT.xlsx
-data/input/raw/MEDIA.xlsx
+data/input/raw/
 ```
 
 ## Processing
 
 ### IT
 
-Nguon IT duoc xu ly nhu matrix va copy sang sheet:
+Nguồn IT được xử lý như matrix và đổ vào:
 
 ```text
 Timesheet IT
 ```
 
+Pipeline IT vẫn giữ cơ chế approval/carry-forward cho các sheet liên quan đến mapping và downstream.
+
 ### Media
 
-Nguon media duoc xu ly nhu bang task va copy sang sheet:
+Nguồn media được xử lý như task table và đổ vào:
 
 ```text
 Data media ACCA+CFA+CMA
 ```
 
-Script se lay cac cot co y nghia nhu:
+Các cột thường dùng gồm:
 
 - `BU`
-- `Ten du an SX` / `Ten du an`
-- `Ten nhiem vu`
-- `So gio hoan thanh cong viec` / `Thoi gian leader phan bo`
-- `Thang` / `Ngay tao`
-- `Nguoi lam task`
-- `Ma nhan vien`
+- `Tên dự án`
+- `Tên nhiệm vụ`
+- `Số giờ hoàn thành công việc`
+- `Tháng` / `Ngày tạo`
+- `Người làm task`
+- `Mã nhân viên`
 
-Neu `Ma nhan vien` bi thieu, script se thu lookup trong sheet `Mã nhân viên` cua template.
+Nếu `Mã nhân viên` bị thiếu, script sẽ lookup trong sheet `Mã nhân viên` của template.
+
+### SX
+
+Nguồn SX được gộp từ 3 file nguồn và xuất ra staging trước khi đổ vào template:
+
+- `ACCA`
+- `CMA`
+- `CFA`
+
+Luồng SX hiện tại:
+
+1. Build staging `Data SX ACCA+CMA` từ các nguồn SX.
+2. Tạo bảng trung gian `SX_Allocation_Build`.
+3. Rebuild công thức `Timesheet SX` từ `SX_Allocation_Build`.
+4. Downstream sang `4.1 Chi phí nhân sự SX`.
+5. Downstream sang `3.Vốn hóa`.
+
+Các checkpoint SX chính:
+
+- `checkpoint data SX`
+- `Check_SX_Downstream`
+- `Check_Vonhoa_Month_Block`
+
+## Approval Flow
+
+Khi chạy với `--approval-file`, workbook approved sẽ được dùng để carry forward
+những sheet người dùng đã duyệt/chỉnh sửa.
+
+Các sheet approval/checkpoint chính:
+
+- `Check_Payroll`
+- `checkpoint data SX`
+- `Check_SX_Downstream`
+- `Check_Vonhoa_Month_Block`
+- `Check_IT_CPNS`
+- `IT_New_Project_Master`
+- `Check_IT_Downstream`
+- `Check_Media_Timesheet`
+
+Các sheet kết quả approval được build lại theo lần chạy hiện tại.
 
 ## Output
 
-File output duoc tao tai:
+File output được tạo tại:
 
 ```text
 data/output/final/von_hoa_YYYYMMDD_HHMMSS.xlsx
 ```
 
-Neu muon dung URL moi trong ngay, co the override truc tiep:
+Ví dụ:
 
 ```powershell
-python automate_kpi.py --download --it-url "..." --media-url "..."
+python automate_kpi.py --download --sx-year 2026 --sx-month 5
+python automate_kpi.py --approval-file "data/output/final/von_hoa_20260526_162209.xlsx" --sx-year 2026 --sx-month 5
 ```
 
 ## Run
@@ -86,6 +140,8 @@ python automate_kpi.py --download --it-url "..." --media-url "..."
 ```powershell
 python automate_kpi.py --download
 python automate_kpi.py
+python automate_kpi.py --sx-year 2026 --sx-month 5
+python automate_kpi.py --approval-file "data/output/final/von_hoa_20260526_162209.xlsx" --sx-year 2026 --sx-month 5
 ```
 
 ## PDF guide
@@ -114,7 +170,19 @@ The file is written to:
 docs/huong_dan_van_hanh_code_github.pdf
 ```
 
-Neu `python` khong co san tren PowerShell, dung:
+To generate the BOD / manager presentation script with speaker notes, run:
+
+```powershell
+py -3 generate_thuyet_trinh_bod_manager.py
+```
+
+The file is written to:
+
+```text
+docs/thuyet_trinh_bod_manager.pdf
+```
+
+Nếu `python` không có sẵn trên PowerShell, dùng:
 
 ```powershell
 py -3 automate_kpi.py --download

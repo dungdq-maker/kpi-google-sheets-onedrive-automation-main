@@ -741,14 +741,14 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
     story.append(PageBreak())
 
     story.append(paragraph("8. Bước approval cho IT và Media", styles["h1"]))
-    story.append(paragraph("Quy trình approval đã được ghi ngay trong sheet Huong_dan_Approval của workbook output mới nhất.", styles["body"]))
+    story.append(paragraph("Quy trình approval đã được ghi ngay trong sheet Huong_dan_Approval của workbook output mới nhất. Sheet này cũng chứa hướng dẫn cho SX, Payroll và các bước duyệt kết quả.", styles["body"]))
     story.append(image_flowable(assets["approval_guide"], 175 * mm))
     story.append(Spacer(1, 3 * mm))
     story.extend(
         add_bullets(
             [
                 "Mở workbook output mới nhất trong data/output/final.",
-                "Mở sheet Huong_dan_Approval để đọc đúng quy trình và lệnh cần chạy.",
+                "Mở sheet Huong_dan_Approval để đọc đúng quy trình và lệnh cần chạy, bao gồm cả SX.",
                 "Nếu cần sửa dữ liệu, chỉ đánh YES ở cột Apply? cho dòng thật sự cần xử lý.",
                 "Lưu workbook approval rồi chạy lại bằng tham số --approval-file.",
             ],
@@ -825,7 +825,56 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
     )
     story.append(PageBreak())
 
-    story.append(paragraph("11. Kiểm tra kết quả sau approval", styles["h1"]))
+    story.append(paragraph("9. Luồng SX: kiểm tra nguồn, checkpoint và approval", styles["h1"]))
+    story.append(paragraph("SX có 2 checkpoint riêng. Một cái dùng để rà dữ liệu nguồn SX trước khi duyệt, một cái dùng để kiểm tra các điểm rơi ở downstream như SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa.", styles["body"]))
+    sx_flow = Table(
+        [
+            [paragraph("Bước", styles["table"]), paragraph("Lệnh / thao tác", styles["table"]), paragraph("Mục đích", styles["table"])],
+            [paragraph("1", styles["table"]), paragraph("py -3 merge_SX.py --check-sources", styles["table"]), paragraph("Kiểm tra file nguồn SX trước khi sinh dữ liệu staging.", styles["table"])],
+            [paragraph("2", styles["table"]), paragraph("py -3 merge_SX.py --year 2026 --month 4", styles["table"]), paragraph("Sinh file staging SX cho tháng / năm cần chạy. Đổi year và month theo kỳ thực tế.", styles["table"])],
+            [paragraph("3", styles["table"]), paragraph("py -3 automate_kpi.py --sx-year 2026 --sx-month 4", styles["table"]), paragraph("Chạy automation để tạo checkpoint data SX, SX_Allocation_Build và Check_SX_Downstream.", styles["table"])],
+            [paragraph("4", styles["table"]), paragraph("Mở Huong_dan_Approval và đặt YES ở Apply?", styles["table"]), paragraph("Chỉ đánh YES cho các dòng thực sự muốn duyệt.", styles["table"])],
+            [paragraph("5", styles["table"]), paragraph('py -3 automate_kpi.py --approval-file "duong_dan_toi_file_approval.xlsx"', styles["table"]), paragraph("Áp dụng các dòng đã duyệt và tạo workbook result mới.", styles["table"])],
+        ],
+        colWidths=[16 * mm, 66 * mm, 88 * mm],
+    )
+    sx_flow.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F766E")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                ("FONTNAME", (0, 0), (-1, -1), styles["table"].fontName),
+                ("FONTSIZE", (0, 0), (-1, -1), 9.4),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    story.append(sx_flow)
+    story.append(Spacer(1, 4 * mm))
+    story.append(image_flowable(assets["sx_checkpoint"], 175 * mm))
+    story.append(Spacer(1, 3 * mm))
+    story.append(image_flowable(assets["sx_downstream"], 175 * mm))
+    story.append(Spacer(1, 3 * mm))
+    story.extend(
+        add_bullets(
+            [
+                "checkpoint data SX: nếu Details báo missing MNV, cập nhật sheet Mã nhân viên rồi chạy lại approval.",
+                "Check_SX_Downstream: sửa các dòng được nêu ở Recommended action cho SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa.",
+                "Sau khi sửa xong, đánh YES ở cột Apply? cho những dòng bạn đồng ý duyệt.",
+                "Workbook đầu ra sau khi chạy lại sẽ có SX_Approval_Result và SX_Downstream_Approval_Result để xem trạng thái applied / skipped / failed.",
+            ],
+            styles["body"],
+        )
+    )
+    story.append(image_flowable(assets["sx_results"], 175 * mm))
+    story.append(PageBreak())
+
+    story.append(paragraph("10. Kiểm tra kết quả sau approval", styles["h1"]))
     story.append(paragraph("Sau khi chạy lại bằng --approval-file, hãy mở các sheet kết quả để xem status.", styles["body"]))
     story.append(image_flowable(assets["results"], 175 * mm))
     story.append(Spacer(1, 3 * mm))
@@ -836,6 +885,8 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
                 "Project_Master_Approval_Result cho việc thêm project master mới.",
                 "Downstream_Approval_Result cho các thao tác catalog và capitalization.",
                 "Media_Approval_Result cho các thao tác sửa Media.",
+                "SX_Approval_Result cho checkpoint data SX.",
+                "SX_Downstream_Approval_Result cho các thao tác downstream của SX.",
             ],
             styles["body"],
         )
@@ -843,7 +894,7 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
     story.append(Paragraph("Nếu trạng thái là applied thì thay đổi đã được ghi vào workbook kết quả mới.", styles["note"]))
     story.append(PageBreak())
 
-    story.append(paragraph("12. Nhập liệu từ bảng lương và kiểm tra Check_Payroll", styles["h1"]))
+    story.append(paragraph("11. Nhập liệu từ bảng lương và kiểm tra Check_Payroll", styles["h1"]))
     story.append(paragraph("Sau khi cập nhật file bảng lương trên OneDrive, chạy lại automation để đồng bộ dữ liệu lương vào workbook output.", styles["body"]))
     story.append(image_flowable(assets["payroll"], 175 * mm))
     story.append(Spacer(1, 3 * mm))
@@ -892,7 +943,7 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
     story.append(paragraph("Nếu Status không phải OK, kiểm tra lại file nguồn bảng lương, tên sheet, hoặc số dòng trùng tháng + MNV.", styles["note"]))
     story.append(PageBreak())
 
-    story.append(paragraph("13. Luồng GitHub cho người duy trì code và người dùng cuối", styles["h1"]))
+    story.append(paragraph("12. Luồng GitHub cho người duy trì code và người dùng cuối", styles["h1"]))
     github_flow = Table(
         [
             [paragraph("Nhóm", styles["table"]), paragraph("Cách làm", styles["table"])],
@@ -931,7 +982,7 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
     )
     story.append(PageBreak())
 
-    story.append(paragraph("14. Điểm yếu cố hữu còn tồn tại", styles["h1"]))
+    story.append(paragraph("13. Điểm yếu cố hữu còn tồn tại", styles["h1"]))
     weak_table = Table(
         [
             [paragraph("Điểm yếu", styles["table"]), paragraph("Tác động thực tế", styles["table"])],
@@ -1132,6 +1183,47 @@ def build_pdf(output_path: Path) -> Path:
                 ),
             ],
             "results_composite.png",
+        ),
+        "sx_checkpoint": preview_sheet_image(
+            wb,
+            "checkpoint data SX",
+            "sx_checkpoint.png",
+            max_rows=8,
+            max_cols=8,
+            note=f"Checkpoint SX từ workbook: {approval_workbook.name}",
+            card_height=650,
+        ),
+        "sx_downstream": preview_sheet_image(
+            wb,
+            "Check_SX_Downstream",
+            "sx_downstream.png",
+            max_rows=8,
+            max_cols=8,
+            note=f"Checkpoint downstream SX từ workbook: {approval_workbook.name}",
+            card_height=650,
+        ),
+        "sx_results": stack_images(
+            [
+                preview_sheet_image(
+                    wb,
+                    "SX_Approval_Result",
+                    "sx_approval_result.png",
+                    max_rows=5,
+                    max_cols=6,
+                    note="Kết quả SX approval sau khi chạy.",
+                    card_height=650,
+                ),
+                preview_sheet_image(
+                    wb,
+                    "SX_Downstream_Approval_Result",
+                    "sx_downstream_approval_result.png",
+                    max_rows=5,
+                    max_cols=6,
+                    note="Kết quả SX downstream approval sau khi chạy.",
+                    card_height=650,
+                ),
+            ],
+            "sx_results_composite.png",
         ),
     }
 

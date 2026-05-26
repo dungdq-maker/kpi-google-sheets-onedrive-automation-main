@@ -63,6 +63,7 @@ SHEET_IT_CHECKING = "Checking Vốn hóa IT"
 SHEET_CAPITALIZATION = "3.Vốn hóa"
 SHEET_EMPLOYEE = "Mã nhân viên"
 SHEET_SX_TARGET = "Data SX ACCA+CMA"
+SHEET_SX_ALLOCATION = "SX_Allocation_Build"
 SHEET_SX_CHECKPOINT = "checkpoint data SX"
 SHEET_SX_DOWNSTREAM_CHECKPOINT = "Check_SX_Downstream"
 SHEET_SX_DOWNSTREAM_RESULT = "SX_Downstream_Approval_Result"
@@ -109,6 +110,7 @@ SX_TEMPLATE_COLUMN_MAP = {
     13: 16, # actual
     14: 17, # KPI standard
 }
+SX_ALLOCATION_SHARE_START_COL = 24  # X
 
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -761,6 +763,7 @@ def build_sx_downstream_checkpoint_data(
     year: int,
     month: int,
     employee_lookup: dict[str, str],
+    capital_values_wb=None,
 ) -> tuple[list[list[Any]], list[list[Any]]]:
     include_cfa = (year, month) >= (2026, 5)
 
@@ -785,12 +788,12 @@ def build_sx_downstream_checkpoint_data(
     details: list[list[Any]] = []
     summary: list[list[Any]] = []
 
-    consol_ws = find_sheet(wb, "Data SX consol")
+    allocation_ws = find_sheet(wb, SHEET_SX_ALLOCATION)
     timesheet_ws = find_sheet(wb, "Timesheet SX")
     cost_ws = find_sheet(wb, "4.1 Chi phí nhân sự SX")
     capital_ws = find_sheet(wb, SHEET_CAPITALIZATION)
 
-    if consol_ws is None or timesheet_ws is None or cost_ws is None or capital_ws is None:
+    if allocation_ws is None or timesheet_ws is None or cost_ws is None or capital_ws is None:
         summary.extend([
             ["Rows staged from Data SX ACCA+CMA", len(filtered_rows)],
             ["Rows missing in downstream", len(filtered_rows)],
@@ -798,9 +801,11 @@ def build_sx_downstream_checkpoint_data(
             ["Rows excluded by filter", skipped_rows],
         ])
         details.append([
-            "sheet structure",
-            year,
-            month,
+                "sheet structure",
+                year,
+                month,
+                None,
+                None,
             None,
             None,
             None,
@@ -808,44 +813,63 @@ def build_sx_downstream_checkpoint_data(
             None,
             None,
             None,
-            None,
-            None,
-            "missing downstream sheet(s)",
-            "Restore missing downstream sheet(s) in template",
-            "NO",
-            None,
-            None,
-            None,
+                "missing downstream sheet(s)",
+                "Restore missing downstream sheet(s) in template",
+                "NO",
+                None,
+                None,
+                None,
             "NO",
         ])
         return summary, details
 
     capitalization_projects: dict[str, str] = {}
-    for r in range(3, capital_ws.max_row + 1):
-        project_name = clean(capital_ws.cell(r, 3).value)
-        if project_name:
-            capitalization_projects[norm(project_name)] = project_name
+    capital_project_codes: dict[str, str] = {}
+    capital_source_wb = capital_values_wb or wb
+    catalog_ws = find_sheet(capital_source_wb, SHEET_PROJECT_CATALOG)
+    if catalog_ws is not None:
+        for r in range(2, catalog_ws.max_row + 1):
+            project_name = clean(catalog_ws.cell(r, 3).value)
+            project_code = clean(catalog_ws.cell(r, 2).value)
+            if project_name:
+                capitalization_projects[norm(project_name)] = project_name
+            if project_name and project_code:
+                capital_project_codes[norm(project_name)] = str(project_code)
 
     eligible_rows: list[dict[str, Any]] = []
     excluded_by_whitelist = 0
     for row in filtered_rows:
-        if norm(clean(row.get("project"))) not in capitalization_projects:
+        program = clean(row.get("program"))
+        project_raw = clean(row.get("project"))
+        employee = clean(row.get("employee"))
+        employee_code = lookup_employee_code(employee_lookup, employee) or "Khong tim thay"
+        ts_row = find_row_with_exact_match(
+            timesheet_ws,
+            4,
+            [(1, year), (2, program), (4, project_raw), (5, "SX"), (6, employee), (7, employee_code)],
+        )
+        capital_project = clean(timesheet_ws.cell(ts_row, 3).value) if ts_row is not None else None
+        if not capital_project or norm(capital_project) not in capitalization_projects:
             excluded_by_whitelist += 1
             continue
-        eligible_rows.append(row)
+        enriched = dict(row)
+        enriched["_capital_project"] = capital_project
+        enriched["_timesheet_row"] = ts_row
+        enriched["_employee_code"] = employee_code
+        eligible_rows.append(enriched)
 
     pairs: dict[tuple[str, str], dict[str, Any]] = {}
     projects: dict[str, dict[str, Any]] = {}
     for row in eligible_rows:
         employee = clean(row.get("employee"))
-        project = clean(row.get("project"))
+        project = clean(row.get("_capital_project") or row.get("project"))
         pair_key = (norm(project), norm(employee))
         if pair_key not in pairs:
             pairs[pair_key] = row
         if project and norm(project) not in projects:
             projects[norm(project)] = row
 
-    data_sx_consol_month_col = 32 + month
+    allocation_month_share_col = sx_allocation_month_share_col(month)
     timesheet_month_col = 7 + month
     cost_month_start_col = sx_downstream_month_block_start(month)
     capital_month_col = find_month_label_col(capital_ws, month, label_row=1)
@@ -923,35 +947,52 @@ def build_sx_downstream_checkpoint_data(
         )
 
     for (project_key, employee_key), row in pairs.items():
+        program = clean(row.get("program"))
         project = clean(row.get("project"))
+        capital_project = clean(row.get("_capital_project") or row.get("project"))
         employee = clean(row.get("employee"))
         append_row = None
-        # Data SX consol
-        consol_row = find_row_with_exact_match(consol_ws, 6, [(30, project), (31, employee)])
-        if consol_row is None or norm(consol_ws.cell(consol_row, data_sx_consol_month_col).value) in {"", "none"}:
+        # SX_Allocation_Build
+        alloc_row = find_row_with_exact_match(
+            allocation_ws,
+            2,
+            [(1, year), (2, program), (3, project), (4, employee), (5, row.get("_employee_code") or lookup_employee_code(employee_lookup, employee) or "Khong tim thay"), (6, "SX")],
+        )
+        if alloc_row is None or norm(allocation_ws.cell(alloc_row, allocation_month_share_col).value) in {"", "none", "0", "0.0"}:
             missing_consol += 1
             add_issue(
-                "Data SX consol",
+                "SX_Allocation_Build",
                 row,
-                "missing in Data SX consol",
-                "Rebuild Data SX consol from raw SX rows and verify project/employee mapping",
+                "missing in SX_Allocation_Build",
+                "Rebuild SX_Allocation_Build from raw SX rows and verify project/employee mapping",
                 expected_target=f"{project} / {employee}",
-                actual_target=None if consol_row is None else consol_ws.cell(consol_row, data_sx_consol_month_col).value,
-                matched="NO" if consol_row is None else "PARTIAL",
+                actual_target=None if alloc_row is None else allocation_ws.cell(alloc_row, allocation_month_share_col).value,
+                matched="NO" if alloc_row is None else "PARTIAL",
                 append_row=append_row,
             )
         else:
             matched_consol += 1
 
         # Timesheet SX
-        ts_row = find_row_with_exact_match(timesheet_ws, 4, [(4, project), (6, employee)])
+        ts_row = row.get("_timesheet_row") or find_row_with_exact_match(
+            timesheet_ws,
+            4,
+            [
+                (1, year),
+                (2, program),
+                (4, project),
+                (5, "SX"),
+                (6, employee),
+                (7, row.get("_employee_code") or lookup_employee_code(employee_lookup, employee) or "Khong tim thay"),
+            ],
+        )
         if ts_row is None or norm(timesheet_ws.cell(ts_row, timesheet_month_col).value) in {"", "none"}:
             missing_timesheet += 1
             add_issue(
                 "Timesheet SX",
                 row,
                 "missing in Timesheet SX",
-                "Check project/employee mapping in Data SX consol and refresh Timesheet SX formulas",
+                "Check project/employee mapping in SX_Allocation_Build and refresh Timesheet SX formulas",
                 expected_target=f"{project} / {employee}",
                 actual_target=None if ts_row is None else timesheet_ws.cell(ts_row, timesheet_month_col).value,
                 matched="NO" if ts_row is None else "PARTIAL",
@@ -961,7 +1002,7 @@ def build_sx_downstream_checkpoint_data(
             matched_timesheet += 1
 
         # 4.1 Chi phí nhân sự SX
-        cost_row = find_row_with_exact_match(cost_ws, 3, [(1, project), (7, employee)])
+        cost_row = find_row_with_exact_match(cost_ws, 3, [(1, capital_project), (7, employee)])
         if cost_row is None or all(norm(cost_ws.cell(cost_row, c).value) in {"", "none"} for c in range(cost_month_start_col, min(cost_month_start_col + 3, cost_ws.max_column + 1))):
             missing_cost += 1
             add_issue(
@@ -969,7 +1010,7 @@ def build_sx_downstream_checkpoint_data(
                 row,
                 "missing in 4.1 Chi phí nhân sự SX",
                 "Refresh cost formulas and verify the project/employee row exists",
-                expected_target=f"{project} / {employee}",
+                expected_target=f"{capital_project} / {employee}",
                 actual_target=None if cost_row is None else cost_ws.cell(cost_row, cost_month_start_col).value,
                 matched="NO" if cost_row is None else "PARTIAL",
                 append_row=append_row,
@@ -978,8 +1019,11 @@ def build_sx_downstream_checkpoint_data(
             matched_cost += 1
 
     for project_key, row in projects.items():
-        project = clean(row.get("project"))
-        capital_row = find_row_by_column_value(capital_ws, 3, 3, project)
+        project = clean(row.get("_capital_project") or row.get("project"))
+        project_code = capital_project_codes.get(norm(project))
+        capital_row = None
+        if project_code:
+            capital_row = find_row_with_exact_match(capital_ws, 3, [(2, project_code)])
         if capital_row is None:
             missing_capital += 1
             add_issue(
@@ -998,8 +1042,8 @@ def build_sx_downstream_checkpoint_data(
     summary.extend([
         ["Rows staged from Data SX ACCA+CMA", len(filtered_rows)],
         ["Rows eligible for downstream by 3.Vốn hóa whitelist", len(eligible_rows)],
-        ["Rows matched in Data SX consol", matched_consol],
-        ["Rows missing in Data SX consol", missing_consol],
+        ["Rows matched in SX_Allocation_Build", matched_consol],
+        ["Rows missing in SX_Allocation_Build", missing_consol],
         ["Rows matched in Timesheet SX", matched_timesheet],
         ["Rows missing in Timesheet SX", missing_timesheet],
         ["Rows matched in 4.1 Chi phí nhân sự SX", matched_cost],
@@ -1411,6 +1455,10 @@ def resolve_sx_employee_code(raw_code: Any, employee: Any, employee_lookup: dict
     if code_text and not code_text.startswith("="):
         return code_text
     return "Khong tim thay"
+
+
+def sx_allocation_month_share_col(month: int) -> int:
+    return SX_ALLOCATION_SHARE_START_COL + month - 1
 
 
 def find_sheet(wb, sheet_name: str):
@@ -1828,6 +1876,237 @@ def rebuild_sx_consol_sheet(wb, employee_lookup: dict[str, str]) -> None:
         consol_ws.auto_filter.ref = f"A5:AA{summary_start_row + len(rows) - 1}"
 
 
+def remove_worksheet_if_exists(wb, sheet_name: str) -> bool:
+    ws = find_sheet(wb, sheet_name)
+    if ws is None:
+        return False
+    wb.remove(ws)
+    return True
+
+
+def sanitize_sx_raw_formulas(wb) -> int:
+    raw_ws = find_sheet(wb, SHEET_SX_TARGET)
+    if raw_ws is None:
+        return 0
+
+    replaced = 0
+    for row in raw_ws.iter_rows():
+        for cell in row:
+            value = cell.value
+            if isinstance(value, str) and value.startswith("=") and "KPIs Standard (final)" in value:
+                cell.value = None
+                replaced += 1
+    return replaced
+
+
+def rebuild_sx_allocation_sheet(wb, employee_lookup: dict[str, str], year: int) -> int:
+    raw_ws = find_sheet(wb, SHEET_SX_TARGET)
+    allocation_ws = find_sheet(wb, SHEET_SX_ALLOCATION)
+    if raw_ws is None:
+        return 0
+    if allocation_ws is None:
+        allocation_ws = wb.create_sheet(title=SHEET_SX_ALLOCATION)
+    else:
+        clear_worksheet(allocation_ws)
+
+    headers = [
+        "year",
+        "program",
+        "project_raw",
+        "employee_name",
+        "employee_code",
+        "department",
+        "position",
+        "source_file",
+        "source_sheet",
+        "source_row_min",
+        "source_row_max",
+    ]
+    headers.extend([f"month_{month}_kpi" for month in range(1, 13)])
+    headers.extend([f"month_{month}_share" for month in range(1, 13)])
+    headers.extend(["allocation_status", "issue", "recommended_action"])
+
+    for c, value in enumerate(headers, start=1):
+        allocation_ws.cell(1, c).value = value
+
+    grouped: dict[tuple[Any, ...], dict[str, Any]] = {}
+    employee_month_totals: dict[tuple[Any, ...], float] = {}
+
+    for r in range(4, raw_ws.max_row + 1):
+        month = month_number(raw_ws.cell(r, 1).value)
+        program = clean(raw_ws.cell(r, 2).value)
+        position = clean(raw_ws.cell(r, 3).value)
+        employee = clean(raw_ws.cell(r, 4).value)
+        project = clean(raw_ws.cell(r, 9).value)
+        source_department = clean(raw_ws.cell(r, 10).value)
+        department = "SX"
+        if month is None or not program or not employee or not project:
+            continue
+
+        program_key = norm(program).upper()
+        if program_key not in SX_ALLOWED_PROGRAMS:
+            continue
+        if program_key == "CFA" and (year, month) < (2026, 5):
+            continue
+
+        actual = parse_hours(raw_ws.cell(r, 16).value) or 0.0
+        kpi_standard = parse_hours(raw_ws.cell(r, 17).value) or 0.0
+        total_kpi = parse_hours(raw_ws.cell(r, 18).value)
+        if total_kpi is None:
+            total_kpi = actual * kpi_standard
+        if not total_kpi:
+            continue
+
+        employee_code = lookup_employee_code(employee_lookup, employee) or "Khong tim thay"
+        grouping_code = employee_code if employee_code != "Khong tim thay" else str(employee)
+        key = (year, program_key, project, str(employee), employee_code, department)
+        bucket = grouped.setdefault(
+            key,
+            {
+                "year": year,
+                "program": program_key,
+                "project_raw": project,
+                "employee_name": employee,
+                "employee_code": employee_code,
+                "department": department,
+                "position": position,
+                "source_file": source_file_for_program(program_key),
+                "source_sheet": raw_ws.title,
+                "source_row_min": r,
+                "source_row_max": r,
+                "source_department": source_department,
+                "months": {m: 0.0 for m in range(1, 13)},
+            },
+        )
+        bucket["source_row_min"] = min(bucket["source_row_min"], r)
+        bucket["source_row_max"] = max(bucket["source_row_max"], r)
+        bucket["months"][month] += float(total_kpi)
+        employee_month_totals[(year, grouping_code, month)] = employee_month_totals.get((year, grouping_code, month), 0.0) + float(total_kpi)
+
+    rows = sorted(
+        grouped.values(),
+        key=lambda item: (
+            norm(item["program"]),
+            norm(item["project_raw"]),
+            norm(item["employee_name"]),
+            norm(item["employee_code"]),
+            norm(item["department"]),
+            int(item["source_row_min"]),
+        ),
+    )
+
+    for idx, item in enumerate(rows, start=2):
+        month_totals = [float(item["months"][m]) for m in range(1, 13)]
+        grouping_code = item["employee_code"] if item["employee_code"] != "Khong tim thay" else str(item["employee_name"])
+        month_shares = []
+        for month in range(1, 13):
+            denom = employee_month_totals.get((year, grouping_code, month), 0.0)
+            month_shares.append((month_totals[month - 1] / denom) if denom else 0.0)
+
+        allocation_status = "OK"
+        issue = None
+        recommended_action = None
+        if item["employee_code"] == "Khong tim thay":
+            allocation_status = "missing MNV"
+            issue = "missing MNV"
+            recommended_action = "Add or fix the employee in sheet 'Mã nhân viên' or correct the source name"
+
+        values = [
+            item["year"],
+            item["program"],
+            item["project_raw"],
+            item["employee_name"],
+            item["employee_code"],
+            item["department"],
+            item["position"],
+            item["source_file"],
+            item["source_sheet"],
+            item["source_row_min"],
+            item["source_row_max"],
+            *month_totals,
+            *month_shares,
+            allocation_status,
+            issue,
+            recommended_action,
+        ]
+        for c, value in enumerate(values, start=1):
+            allocation_ws.cell(idx, c).value = value
+
+    allocation_ws.freeze_panes = "A2"
+    allocation_ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
+    for col, width in {
+        "A": 10,
+        "B": 12,
+        "C": 34,
+        "D": 24,
+        "E": 14,
+        "F": 14,
+        "G": 18,
+        "H": 18,
+        "I": 18,
+        "J": 12,
+        "K": 12,
+        "L": 12,
+        "M": 12,
+        "N": 12,
+        "O": 12,
+        "P": 12,
+        "Q": 12,
+        "R": 12,
+        "S": 12,
+        "T": 12,
+        "U": 12,
+        "V": 12,
+        "W": 12,
+        "X": 12,
+        "Y": 12,
+        "Z": 12,
+        "AA": 12,
+        "AB": 12,
+        "AC": 12,
+        "AD": 12,
+        "AE": 12,
+        "AF": 12,
+        "AG": 12,
+        "AH": 12,
+        "AI": 12,
+        "AJ": 16,
+        "AK": 24,
+        "AL": 42,
+    }.items():
+        allocation_ws.column_dimensions[col].width = width
+    return len(rows)
+
+
+def rewrite_timesheet_sx_from_allocation(wb) -> int:
+    timesheet_ws = find_sheet(wb, "Timesheet SX")
+    allocation_ws = find_sheet(wb, SHEET_SX_ALLOCATION)
+    if timesheet_ws is None or allocation_ws is None:
+        return 0
+
+    rewritten = 0
+    for r in range(4, timesheet_ws.max_row + 1):
+        if not any(clean(timesheet_ws.cell(r, c).value) is not None for c in range(1, 8)):
+            continue
+
+        for month_col in range(8, 20):
+            header_month = month_col - 7
+            share_col = sx_allocation_month_share_col(header_month)
+            share_letter = get_column_letter(share_col)
+            formula = (
+                f"=SUMIFS('{SHEET_SX_ALLOCATION}'!${share_letter}:${share_letter},"
+                f"'{SHEET_SX_ALLOCATION}'!$A:$A,$A{r},"
+                f"'{SHEET_SX_ALLOCATION}'!$B:$B,$B{r},"
+                f"'{SHEET_SX_ALLOCATION}'!$C:$C,$D{r},"
+                f"'{SHEET_SX_ALLOCATION}'!$D:$D,$F{r},"
+                f"'{SHEET_SX_ALLOCATION}'!$E:$E,$G{r},"
+                f"'{SHEET_SX_ALLOCATION}'!$F:$F,$E{r})"
+            )
+            timesheet_ws.cell(r, month_col).value = formula
+            rewritten += 1
+    return rewritten
+
+
 def copy_column_block_with_translation(ws, source_start_col: int, target_start_col: int, width: int) -> None:
     for offset in range(width):
         src_col = source_start_col + offset
@@ -2202,7 +2481,7 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
         [1, str(output_path), "", "Mở workbook này và kiểm tra các sheet Check_Payroll, checkpoint data SX, Check_SX_Downstream và Check_Vonhoa_Month_Block. Khi rerun bằng --approval-file, các sheet approval/checkpoint do người dùng chỉnh sẽ được carry forward; các sheet nguồn và sheet kết quả vẫn được rebuild từ input mới."],
         [2, str(output_path), "YES / Y / TRUE / 1 / APPLY / APPROVED", "Nhập một trong các giá trị này vào cột Apply? cho những dòng bạn muốn duyệt. Để trống hoặc nhập NO nếu không duyệt."],
         [3, str(output_path), "checkpoint data SX", "Hành động SX source: kiểm tra một sheet duy nhất gồm Summary / Details. Các dòng thiếu MNV sẽ nằm ngay trong Details với Issue = missing MNV; cập nhật sheet Mã nhân viên nếu cần, ghi chú ở cột Approval notes nếu cần, rồi đặt Apply? cho các dòng muốn mang qua file mới."],
-        [4, str(output_path), "Check_SX_Downstream", "Hành động SX downstream: kiểm tra Summary / Details để soi dữ liệu rơi ở Data SX consol, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa. Chỉ các project có tên nằm trong 3.Vốn hóa mới được tính downstream; các project khác sẽ bị loại theo whitelist. Nếu cần chỉnh thì sửa workbook theo cột Recommended action rồi đặt Apply? cho các dòng muốn duyệt."],
+        [4, str(output_path), "Check_SX_Downstream", "Hành động SX downstream: kiểm tra Summary / Details để soi dữ liệu rơi ở SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa. Chỉ các project có tên nằm trong 3.Vốn hóa mới được tính downstream; các project khác sẽ bị loại theo whitelist. Nếu cần chỉnh thì sửa workbook theo cột Recommended action rồi đặt Apply? cho các dòng muốn duyệt."],
         [5, str(output_path), f"py -3 automate_kpi.py --approval-file \"{output_path}\"", "Sau khi đánh dấu các dòng cần duyệt trong workbook này, chạy lệnh này và trỏ --approval-file về đúng workbook đã chỉnh. Workbook này sẽ là base để carry forward phần approval/checkpoint."],
         [6, str(approval_file) if approval_file else "(none)", "", "Nếu lần chạy này có dùng approval file, đường dẫn sẽ hiện ở đây. Muốn đổi ý thì sửa file đó hoặc chạy lại không kèm --approval-file. Không dùng output cũ ngẫu nhiên làm nguồn carry forward nữa."],
         [7, str(output_path), "py -3 automate_kpi.py", "Chạy lại không có --approval-file để bỏ qua toàn bộ phê duyệt và tạo workbook mới từ template / nguồn dữ liệu. Đây là chế độ rebuild sạch, không carry forward state approved."],
@@ -2233,7 +2512,7 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
             3,
             "Xem checkpoint và chọn dòng cần sửa",
             "(sửa workbook, không cần lệnh)",
-            "Mở Check_Payroll, checkpoint data SX và Check_SX_Downstream. Phần Data SX consol đã được rebuild tự động khi run. Chỉ đặt YES ở Apply? cho các dòng bạn đồng ý duyệt.",
+            "Mở Check_Payroll, checkpoint data SX và Check_SX_Downstream. Phần SX_Allocation_Build và Timesheet SX sẽ được rebuild tự động khi run. Chỉ đặt YES ở Apply? cho các dòng bạn đồng ý duyệt.",
             f"Sửa trực tiếp workbook approval ở cột B, thường là {output_path}.",
         ],
         [
@@ -2311,7 +2590,7 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
             "SX downstream / duyệt downstream",
             "Check_SX_Downstream",
             "Giải quyết lỗi xuống dòng và duyệt theo từng dòng",
-            "Sửa các điểm rơi ở Data SX consol, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa theo Recommended action. Chỉ những project có mặt trong 3.Vốn hóa mới được tính downstream; project ngoài whitelist sẽ bị loại.",
+            "Sửa các điểm rơi ở SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa theo Recommended action. Chỉ những project có mặt trong 3.Vốn hóa mới được tính downstream; project ngoài whitelist sẽ bị loại.",
             "SX_Downstream_Approval_Result",
         ],
         [
@@ -3244,6 +3523,8 @@ def run(
     shutil.copy2(template, output_path)
 
     wb = load_workbook(output_path)
+    capital_values_wb = load_workbook(output_path, data_only=True)
+    restore_carry_forward_sheets_from_approval_file(wb, approval_file)
     try:
         wb.calculation.calcMode = "auto"
         wb.calculation.fullCalcOnLoad = True
@@ -3291,12 +3572,24 @@ def run(
     if SHEET_SX_TARGET in wb.sheetnames:
         sx_append_rows, sx_skipped_rows = append_sx_to_template(wb, sx_rows, employee_lookup, sx_year, sx_month)
         print(f"  appended SX rows to {SHEET_SX_TARGET}: {sx_append_rows} kept, {sx_skipped_rows} skipped")
-        rebuild_sx_consol_sheet(wb, employee_lookup)
-        print("  rebuilt Data SX consol from raw SX rows")
     else:
         print(f"  missing sheet: {SHEET_SX_TARGET}")
 
     apply_sx_approvals(wb, approval_file, employee_lookup)
+
+    if SHEET_EMPLOYEE in wb.sheetnames:
+        employee_lookup = build_employee_lookup(wb)
+
+    if SHEET_SX_TARGET in wb.sheetnames:
+        sx_formula_fixes = sanitize_sx_raw_formulas(wb)
+        if sx_formula_fixes:
+            print(f"  sanitized {sx_formula_fixes} SX raw formula cell(s)")
+        allocation_rows = rebuild_sx_allocation_sheet(wb, employee_lookup, sx_year)
+        print(f"  rebuilt {SHEET_SX_ALLOCATION} from raw SX rows: {allocation_rows} rows")
+        rewritten_cells = rewrite_timesheet_sx_from_allocation(wb)
+        print(f"  rewrote Timesheet SX formulas from {SHEET_SX_ALLOCATION}: {rewritten_cells} cells")
+        if remove_worksheet_if_exists(wb, "Data SX consol"):
+            print("  removed obsolete sheet: Data SX consol")
 
     if SHEET_CAPITALIZATION in wb.sheetnames:
         cap_ws = wb[SHEET_CAPITALIZATION]
@@ -3314,11 +3607,10 @@ def run(
         sx_year,
         sx_month,
         employee_lookup,
+        capital_values_wb=capital_values_wb,
     )
     write_sx_downstream_checkpoint_sheet(wb, sx_downstream_summary, sx_downstream_details)
     apply_sx_downstream_approvals(wb, approval_file)
-
-    restore_carry_forward_sheets_from_approval_file(wb, approval_file)
     write_approval_guide_sheet(wb, output_path, approval_file)
     print("  wrote checkpoint sheets: Check_Payroll, Check_IT_CPNS, IT_New_Project_Master, Check_IT_Downstream, Check_Media_Timesheet, checkpoint data SX, Check_SX_Downstream, Check_Vonhoa_Month_Block")
 
