@@ -934,7 +934,7 @@ def build_sx_downstream_checkpoint_data(
                 "Data SX consol",
                 row,
                 "missing in Data SX consol",
-                "Refresh Data SX consol pivot and verify project/employee mapping",
+                "Rebuild Data SX consol from raw SX rows and verify project/employee mapping",
                 expected_target=f"{project} / {employee}",
                 actual_target=None if consol_row is None else consol_ws.cell(consol_row, data_sx_consol_month_col).value,
                 matched="NO" if consol_row is None else "PARTIAL",
@@ -1397,6 +1397,22 @@ def lookup_employee_code(lookup: dict[str, str], name: Any) -> str | None:
     return lookup.get(norm(name))
 
 
+def resolve_sx_employee_code(raw_code: Any, employee: Any, employee_lookup: dict[str, str]) -> str:
+    code_text = clean(raw_code)
+    if code_text and not code_text.startswith("="):
+        normalized = code_text.upper().replace(" ", "")
+        if normalized.startswith("MNV"):
+            return code_text
+
+    looked_up = lookup_employee_code(employee_lookup, employee)
+    if looked_up:
+        return looked_up
+
+    if code_text and not code_text.startswith("="):
+        return code_text
+    return "Khong tim thay"
+
+
 def find_sheet(wb, sheet_name: str):
     target = str(sheet_name).strip()
     if not target:
@@ -1723,6 +1739,95 @@ def patch_pivot_refresh_flags(xlsx_path: Path) -> None:
     tmp_path.replace(xlsx_path)
 
 
+def rebuild_sx_consol_sheet(wb, employee_lookup: dict[str, str]) -> None:
+    raw_ws = find_sheet(wb, SHEET_SX_TARGET)
+    consol_ws = find_sheet(wb, "Data SX consol")
+    if raw_ws is None or consol_ws is None:
+        return
+
+    # Collect month totals per (project, employee, employee-code) and per employee/month.
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    employee_month_totals: dict[tuple[str, int], float] = {}
+
+    for r in range(4, raw_ws.max_row + 1):
+        month = month_number(raw_ws.cell(r, 1).value)
+        project = clean(raw_ws.cell(r, 9).value)
+        employee = clean(raw_ws.cell(r, 4).value)
+        if month is None or not project or not employee:
+            continue
+
+        code = resolve_sx_employee_code(raw_ws.cell(r, 5).value, employee, employee_lookup)
+        actual = parse_hours(raw_ws.cell(r, 16).value) or 0.0
+        kpi_standard = parse_hours(raw_ws.cell(r, 17).value) or 0.0
+        total_kpi = parse_hours(raw_ws.cell(r, 18).value)
+        if total_kpi is None:
+            total_kpi = actual * kpi_standard
+        if total_kpi == 0:
+            continue
+
+        key = (project, employee, code)
+        bucket = grouped.setdefault(
+            key,
+            {
+                "project": project,
+                "employee": employee,
+                "code": code,
+                "first_row": r,
+                "months": {m: 0.0 for m in range(1, 13)},
+            },
+        )
+        bucket["months"][month] += float(total_kpi)
+        employee_month_totals[(employee, month)] = employee_month_totals.get((employee, month), 0.0) + float(total_kpi)
+
+    rows = sorted(
+        grouped.values(),
+        key=lambda item: (
+            norm(item["project"]),
+            norm(item["employee"]),
+            norm(item["code"]),
+            int(item["first_row"]),
+        ),
+    )
+
+    # Clear the old consolidated zones so stale spill values do not remain visible.
+    clear_values(consol_ws, 6, max(consol_ws.max_row, 200), 1, 27)
+    clear_values(consol_ws, 32, max(consol_ws.max_row, 200), 30, 44)
+
+    summary_start_row = 6
+    compact_start_row = 32
+    for idx, item in enumerate(rows):
+        summary_row = summary_start_row + idx
+        compact_row = compact_start_row + idx
+        month_totals = [float(item["months"][m]) for m in range(1, 13)]
+        month_shares = []
+        for month in range(1, 13):
+            denom = employee_month_totals.get((item["employee"], month), 0.0)
+            month_shares.append((month_totals[month - 1] / denom) if denom else 0.0)
+
+        summary_values = [
+            item["project"],
+            item["employee"],
+            item["code"],
+            *month_totals,
+            *month_shares,
+        ]
+        for col_idx, value in enumerate(summary_values, start=1):
+            consol_ws.cell(summary_row, col_idx).value = value
+
+        compact_values = [
+            item["project"],
+            item["employee"],
+            item["code"],
+            *month_shares,
+        ]
+        for col_idx, value in enumerate(compact_values, start=30):  # AD
+            consol_ws.cell(compact_row, col_idx).value = value
+
+    # Keep the old filter range aligned with the rebuilt summary.
+    if rows:
+        consol_ws.auto_filter.ref = f"A5:AA{summary_start_row + len(rows) - 1}"
+
+
 def copy_column_block_with_translation(ws, source_start_col: int, target_start_col: int, width: int) -> None:
     for offset in range(width):
         src_col = source_start_col + offset
@@ -1935,46 +2040,26 @@ def apply_capitalization_month_approvals(wb, approval_file: Path | None) -> None
     write_capitalization_month_result_sheet(wb, results)
 
 
-def restore_checkpoint_sheets_from_previous_output(wb, current_output: Path) -> None:
-    candidates = sorted(
-        DIRS["final"].glob("von_hoa_*.xlsx"),
-        key=lambda p: p.stat().st_mtime if p.exists() else 0,
-        reverse=True,
-    )
-    source_path = None
-    current_resolved = current_output.resolve() if current_output.exists() else None
-    for candidate in candidates:
-        try:
-            if current_resolved is not None and candidate.resolve() == current_resolved:
-                continue
-        except Exception:
-            pass
-        source_path = candidate
-        break
-
-    if source_path is None:
+def restore_carry_forward_sheets_from_approval_file(wb, approval_file: Path | None) -> None:
+    if approval_file is None or not approval_file.exists():
         return
 
     try:
-        source_wb = load_workbook(source_path, data_only=False)
+        source_wb = load_workbook(approval_file, data_only=False)
     except Exception:
         return
 
     sheet_names = [
+        # Only carry forward the sheets that are meant to be edited/approved by the user.
+        # Generated source/output sheets are rebuilt from the latest inputs on every run.
         "Check_IT_CPNS",
         "IT_New_Project_Master",
         "Check_IT_Downstream",
         "Check_Media_Timesheet",
+        "checkpoint data SX",
+        "Check_SX_Downstream",
+        "Check_Vonhoa_Month_Block",
     ]
-    if not any(name in source_wb.sheetnames for name in sheet_names):
-        for candidate in candidates[1:]:
-            try:
-                source_wb = load_workbook(candidate, data_only=False)
-            except Exception:
-                continue
-            if any(name in source_wb.sheetnames for name in sheet_names):
-                source_path = candidate
-                break
 
     for sheet_name in sheet_names:
         source_ws = find_sheet(source_wb, sheet_name)
@@ -2114,13 +2199,13 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
     ws = reset_sheet(wb, "Huong_dan_Approval")
     rows = [
         ["Bước", "Workbook approval", "Lệnh / Giá trị", "Hướng dẫn"],
-        [1, str(output_path), "", "Mở workbook này, chọn Data -> Refresh All trong Excel nếu cần làm mới pivot/cache, rồi kiểm tra các sheet Check_Payroll, checkpoint data SX, Check_SX_Downstream và Check_Vonhoa_Month_Block. Các sheet IT khác đã có sẵn trong template."],
+        [1, str(output_path), "", "Mở workbook này và kiểm tra các sheet Check_Payroll, checkpoint data SX, Check_SX_Downstream và Check_Vonhoa_Month_Block. Khi rerun bằng --approval-file, các sheet approval/checkpoint do người dùng chỉnh sẽ được carry forward; các sheet nguồn và sheet kết quả vẫn được rebuild từ input mới."],
         [2, str(output_path), "YES / Y / TRUE / 1 / APPLY / APPROVED", "Nhập một trong các giá trị này vào cột Apply? cho những dòng bạn muốn duyệt. Để trống hoặc nhập NO nếu không duyệt."],
         [3, str(output_path), "checkpoint data SX", "Hành động SX source: kiểm tra một sheet duy nhất gồm Summary / Details. Các dòng thiếu MNV sẽ nằm ngay trong Details với Issue = missing MNV; cập nhật sheet Mã nhân viên nếu cần, ghi chú ở cột Approval notes nếu cần, rồi đặt Apply? cho các dòng muốn mang qua file mới."],
-        [4, str(output_path), "Check_SX_Downstream", "Hành động SX downstream: kiểm tra Summary / Details để soi dữ liệu rơi ở Data SX consol, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa. Chỉ các project có tên nằm trong 3.Vốn hóa mới được tính downstream; các project khác sẽ bị loại theo whitelist. Nếu cache/pivot chưa cập nhật, hãy Refresh All trong Excel trước khi đánh giá. Nếu cần chỉnh thì sửa workbook theo cột Recommended action rồi đặt Apply? cho các dòng muốn duyệt."],
-        [5, str(output_path), f"py -3 automate_kpi.py --approval-file \"{output_path}\"", "Sau khi đánh dấu các dòng cần duyệt trong workbook này, chạy lệnh này và trỏ --approval-file về đúng workbook đã chỉnh."],
-        [6, str(approval_file) if approval_file else "(none)", "", "Nếu lần chạy này có dùng approval file, đường dẫn sẽ hiện ở đây. Muốn đổi ý thì sửa file đó hoặc chạy lại không kèm --approval-file."],
-        [7, str(output_path), "py -3 automate_kpi.py", "Chạy lại không có --approval-file để bỏ qua toàn bộ phê duyệt và tạo workbook mới từ template / nguồn dữ liệu."],
+        [4, str(output_path), "Check_SX_Downstream", "Hành động SX downstream: kiểm tra Summary / Details để soi dữ liệu rơi ở Data SX consol, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa. Chỉ các project có tên nằm trong 3.Vốn hóa mới được tính downstream; các project khác sẽ bị loại theo whitelist. Nếu cần chỉnh thì sửa workbook theo cột Recommended action rồi đặt Apply? cho các dòng muốn duyệt."],
+        [5, str(output_path), f"py -3 automate_kpi.py --approval-file \"{output_path}\"", "Sau khi đánh dấu các dòng cần duyệt trong workbook này, chạy lệnh này và trỏ --approval-file về đúng workbook đã chỉnh. Workbook này sẽ là base để carry forward phần approval/checkpoint."],
+        [6, str(approval_file) if approval_file else "(none)", "", "Nếu lần chạy này có dùng approval file, đường dẫn sẽ hiện ở đây. Muốn đổi ý thì sửa file đó hoặc chạy lại không kèm --approval-file. Không dùng output cũ ngẫu nhiên làm nguồn carry forward nữa."],
+        [7, str(output_path), "py -3 automate_kpi.py", "Chạy lại không có --approval-file để bỏ qua toàn bộ phê duyệt và tạo workbook mới từ template / nguồn dữ liệu. Đây là chế độ rebuild sạch, không carry forward state approved."],
         [8, str(output_path), "IT_Approval_Result / Project_Master_Approval_Result / Downstream_Approval_Result / Media_Approval_Result / SX_Approval_Result / SX_Downstream_Approval_Result / Vonhoa_Block_Approval_Result", "Workbook đầu ra tiếp theo sẽ có các sheet kết quả này để ghi trạng thái applied / skipped / failed."],
     ]
     for r, row in enumerate(rows, start=1):
@@ -2148,14 +2233,14 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
             3,
             "Xem checkpoint và chọn dòng cần sửa",
             "(sửa workbook, không cần lệnh)",
-            "Mở Check_Payroll, checkpoint data SX và Check_SX_Downstream. Nếu mới thêm tháng SX thì hãy Refresh All trong Excel trước khi kiểm tra. Chỉ đặt YES ở Apply? cho các dòng bạn đồng ý duyệt.",
+            "Mở Check_Payroll, checkpoint data SX và Check_SX_Downstream. Phần Data SX consol đã được rebuild tự động khi run. Chỉ đặt YES ở Apply? cho các dòng bạn đồng ý duyệt.",
             f"Sửa trực tiếp workbook approval ở cột B, thường là {output_path}.",
         ],
         [
             4,
             "Áp dụng các dòng đã duyệt",
             f'py -3 automate_kpi.py --approval-file "{output_path}"',
-            "Đọc các dòng YES từ workbook approval, áp dụng các thay đổi hợp lệ, rồi tạo workbook output mới. Nếu workbook approval vừa được cập nhật pivot/cache thì mở bằng Excel và Refresh All trước khi rerun.",
+            "Đọc các dòng YES từ workbook approval, áp dụng các thay đổi hợp lệ, rồi tạo workbook output mới.",
             "Đường dẫn --approval-file phải trỏ đúng workbook bạn đã chỉnh YES.",
         ],
         [
@@ -3206,6 +3291,8 @@ def run(
     if SHEET_SX_TARGET in wb.sheetnames:
         sx_append_rows, sx_skipped_rows = append_sx_to_template(wb, sx_rows, employee_lookup, sx_year, sx_month)
         print(f"  appended SX rows to {SHEET_SX_TARGET}: {sx_append_rows} kept, {sx_skipped_rows} skipped")
+        rebuild_sx_consol_sheet(wb, employee_lookup)
+        print("  rebuilt Data SX consol from raw SX rows")
     else:
         print(f"  missing sheet: {SHEET_SX_TARGET}")
 
@@ -3231,7 +3318,7 @@ def run(
     write_sx_downstream_checkpoint_sheet(wb, sx_downstream_summary, sx_downstream_details)
     apply_sx_downstream_approvals(wb, approval_file)
 
-    restore_checkpoint_sheets_from_previous_output(wb, output_path)
+    restore_carry_forward_sheets_from_approval_file(wb, approval_file)
     write_approval_guide_sheet(wb, output_path, approval_file)
     print("  wrote checkpoint sheets: Check_Payroll, Check_IT_CPNS, IT_New_Project_Master, Check_IT_Downstream, Check_Media_Timesheet, checkpoint data SX, Check_SX_Downstream, Check_Vonhoa_Month_Block")
 
