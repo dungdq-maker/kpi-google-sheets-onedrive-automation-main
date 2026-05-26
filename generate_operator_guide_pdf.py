@@ -76,7 +76,7 @@ def cell(text: str, style: ParagraphStyle) -> Paragraph:
     return Paragraph(escape(text).replace("\n", "<br/>"), style)
 
 
-def flow_diagram() -> Drawing:
+def flow_diagram(font_bold: str, font_regular: str) -> Drawing:
     d = Drawing(520, 160)
     steps = [
         ("1", 20, 70, 70, 42, "#1D4ED8", "git clone"),
@@ -87,12 +87,12 @@ def flow_diagram() -> Drawing:
     ]
     for idx, x, y, w, h, fill, label in steps:
         d.add(Rect(x, y, w, h, rx=8, ry=8, fillColor=colors.HexColor(fill), strokeColor=colors.HexColor(fill)))
-        d.add(String(x + 10, y + 24, label, fontName="Helvetica-Bold", fontSize=10, fillColor=colors.white))
+        d.add(String(x + 10, y + 24, label, fontName=font_bold, fontSize=10, fillColor=colors.white))
     for x1, x2 in [(90, 108), (190, 208), (290, 308), (400, 418)]:
         d.add(Line(x1, 91, x2, 91, strokeColor=colors.HexColor("#64748B"), strokeWidth=2))
         d.add(Circle(x2, 91, 3, fillColor=colors.HexColor("#64748B"), strokeColor=colors.HexColor("#64748B")))
-    d.add(String(20, 130, "Luồng vận hành code", fontName="Helvetica-Bold", fontSize=12, fillColor=colors.HexColor("#0F172A")))
-    d.add(String(20, 112, "Dùng cho người duy trì code trước khi phát hành cho người dùng cuối.", fontName="Helvetica", fontSize=9, fillColor=colors.HexColor("#334155")))
+    d.add(String(20, 130, "Luồng vận hành code", fontName=font_bold, fontSize=12, fillColor=colors.HexColor("#0F172A")))
+    d.add(String(20, 112, "Dùng cho người duy trì code trước khi phát hành cho người dùng cuối.", fontName=font_regular, fontSize=9, fillColor=colors.HexColor("#334155")))
     return d
 
 
@@ -104,7 +104,7 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
     story.append(Spacer(1, 4 * mm))
     story.append(p("Tài liệu riêng cho người duy trì code: clone, sửa, test, commit, push và phát hành cho người dùng cuối.", styles["cover_subtitle"]))
     story.append(Spacer(1, 8 * mm))
-    story.append(flow_diagram())
+    story.append(flow_diagram(styles["cover_title"].fontName, styles["body"].fontName))
     story.append(PageBreak())
 
     story.append(p("1. Mục tiêu của tài liệu", styles["h1"]))
@@ -142,7 +142,46 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
     story.append(role_table)
     story.append(PageBreak())
 
-    story.append(p("2. Lấy source lần đầu", styles["h1"]))
+    story.append(p("2. Luồng làm việc chuẩn", styles["h1"]))
+    story.append(p("Luồng mới nhất trong repo là: sửa code local -> publish lên GitHub -> người dùng cuối refresh repo hoặc tải ZIP mới -> chạy automation.", styles["body"]))
+    workflow_table = Table(
+        [
+            [cell("Bước", styles["table"]), cell("Lệnh / hành động", styles["table"])],
+            [cell("1", styles["table"]), cell("Sửa code local bằng VS Code.", styles["table"])],
+            [cell("2", styles["table"]), cell("Chạy `powershell -ExecutionPolicy Bypass -File .\\publish_to_github.ps1`.", styles["table"])],
+            [cell("3", styles["table"]), cell("Kiểm tra dòng xác nhận push thành công lên branch `main`.", styles["table"])],
+            [cell("4", styles["table"]), cell("Người dùng cuối refresh repo GitHub hoặc tải ZIP mới.", styles["table"])],
+            [cell("5", styles["table"]), cell("Người dùng cuối chạy `powershell -ExecutionPolicy Bypass -File .\\run_kpi_automation.ps1`.", styles["table"])],
+        ],
+        colWidths=[20 * mm, 160 * mm],
+    )
+    workflow_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F766E")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                ("FONTNAME", (0, 0), (-1, -1), styles["table"].fontName),
+                ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#F8FAFC")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 7),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    story.append(workflow_table)
+    story.append(Spacer(1, 4 * mm))
+    story.extend(
+        [
+            p("Lệnh publish dùng script có sẵn trong repo, không cần gõ từng lệnh git nếu chỉ muốn đẩy bản sửa lên GitHub.", styles["body"]),
+            p("Nếu GitHub có bản mới, workflow của người dùng cuối nên update trước khi chạy automation.", styles["note"]),
+        ]
+    )
+    story.append(PageBreak())
+
+    story.append(p("3. Lấy source lần đầu", styles["h1"]))
     story.append(p("Lệnh khuyến nghị cho người vận hành code là clone trực tiếp từ GitHub.", styles["body"]))
     story.append(p("git clone https://github.com/dungdq-maker/kpi-google-sheets-onedrive-automation-main.git", styles["code"]))
     story.append(Spacer(1, 2 * mm))
@@ -158,7 +197,7 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
 
     story.append(PageBreak())
 
-    story.append(p("3. Cài môi trường và chạy thử local", styles["h1"]))
+    story.append(p("4. Cài môi trường và chạy thử local", styles["h1"]))
     story.append(p("Trước khi sửa hay push, hãy cài dependencies và chạy thử code để biết bản hiện tại có lỗi gì.", styles["body"]))
     story.append(p("py -3 -m pip install -r requirements.txt", styles["code"]))
     story.append(Spacer(1, 2 * mm))
@@ -175,7 +214,7 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
     story.append(p("Nếu có lỗi, sửa code rồi chạy lại trước khi commit.", styles["note"]))
     story.append(PageBreak())
 
-    story.append(p("4. Quy trình sửa code", styles["h1"]))
+    story.append(p("5. Quy trình sửa code", styles["h1"]))
     edit_table = Table(
         [
             [cell("Bước", styles["table"]), cell("Câu lệnh / thao tác", styles["table"])],
@@ -208,25 +247,24 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
 
     story.append(PageBreak())
 
-    story.append(p("5. Commit và push lên GitHub", styles["h1"]))
-    story.append(p("Khi bản sửa đã ổn, dùng đúng chuỗi lệnh git sau để đưa code lên GitHub.", styles["body"]))
-    story.append(p("git status", styles["code"]))
-    story.append(p("git add .", styles["code"]))
-    story.append(p('git commit -m "Update automation and guide"', styles["code"]))
-    story.append(p("git push origin main", styles["code"]))
+    story.append(p("6. Commit và push lên GitHub", styles["h1"]))
+    story.append(p("Khi bản sửa đã ổn, ưu tiên chạy script publish có sẵn để tránh quên bước hoặc push sai branch.", styles["body"]))
+    story.append(p("powershell -ExecutionPolicy Bypass -File .\\publish_to_github.ps1", styles["code"]))
     story.extend(
         [
-            p("Lệnh thay thế thường dùng:", styles["subhead"]),
-            p("git branch", styles["code"]),
-            p("git remote -v", styles["code"]),
-            p("git log --oneline -5", styles["code"]),
+            p("Nếu cần tự làm thủ công, dùng:", styles["subhead"]),
+            p("git status", styles["code"]),
+            p("git add .", styles["code"]),
+            p('git commit -m "Update automation and guide"', styles["code"]),
+            p("git push origin main", styles["code"]),
+            p("git branch --show-current", styles["code"]),
         ]
     )
-    story.append(p("Nếu repo dùng nhánh khác `main`, thay `main` bằng nhánh thật của dự án.", styles["note"]))
+    story.append(p("Nếu repo dùng nhánh khác `main`, thay `main` bằng nhánh thật của dự án. Script publish sẽ báo dòng xác nhận kiểu `Pushed latest local changes to GitHub branch 'main'.` khi thành công.", styles["note"]))
 
     story.append(PageBreak())
 
-    story.append(p("6. Phát hành cho người dùng cuối", styles["h1"]))
+    story.append(p("7. Phát hành cho người dùng cuối", styles["h1"]))
     release_table = Table(
         [
             [cell("Cách phát hành", styles["table"]), cell("Khi nào dùng", styles["table"])],
@@ -259,7 +297,7 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
 
     story.append(PageBreak())
 
-    story.append(p("7. Kiểm tra trước khi bàn giao", styles["h1"]))
+    story.append(p("8. Kiểm tra trước khi bàn giao", styles["h1"]))
     checklist = Table(
         [
             [cell("Checklist", styles["table"]), cell("Đã xong?", styles["table"])],
@@ -292,7 +330,7 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
 
     story.append(PageBreak())
 
-    story.append(p("8. Lỗi thường gặp", styles["h1"]))
+    story.append(p("9. Lỗi thường gặp", styles["h1"]))
     errors = Table(
         [
             [cell("Vấn đề", styles["table"]), cell("Cách xử lý", styles["table"])],
