@@ -12,11 +12,13 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import Image as RLImage
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 WORK_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = WORK_DIR / "docs" / "thuyet_trinh_bod_manager.pdf"
+ASSET_DIR = WORK_DIR / "docs" / "generated_assets"
 
 
 def pick_font(candidates: list[Path]) -> Path | None:
@@ -112,6 +114,26 @@ def make_box(rows: list[list[Paragraph]], col_widths: list[float], header_fill: 
     return table
 
 
+def image_flowable(path: Path, width: float) -> RLImage | None:
+    if not path.exists():
+        return None
+    img = RLImage(str(path))
+    ratio = img.imageHeight / float(img.imageWidth)
+    img.drawWidth = width
+    img.drawHeight = width * ratio
+    return img
+
+
+def append_asset(story: list, filename: str, width: float, caption: str, styles: dict[str, ParagraphStyle]) -> None:
+    story.append(p(caption, styles["caption"]))
+    img = image_flowable(ASSET_DIR / filename, width)
+    if img is None:
+        story.append(p(f"Khong tim thay anh: docs/generated_assets/{filename}", styles["note"]))
+    else:
+        story.append(img)
+    story.append(Spacer(1, 3 * mm))
+
+
 def build_story(styles: dict[str, ParagraphStyle]) -> list:
     story: list = []
 
@@ -184,6 +206,21 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
     )
     story.append(problem_table)
     story.append(Spacer(1, 4 * mm))
+    manual_risk_table = make_box(
+        [
+            [p("Trước automation dễ sai ở đâu?", styles["table"]), p("Ví dụ thực tế", styles["table"]), p("Checkpoint giúp gì?", styles["table"])],
+            [p("Copy nhưng không để ý format", styles["table"]), p("Copy từ Google Sheet, Excel hoặc workbook cũ có thể kéo theo format, công thức, kiểu ngày tháng hoặc cột lệch.", styles["table"]), p("Đưa dữ liệu qua staging/check sheet để nhìn lại dòng, tháng, MNV, project và trạng thái trước khi ghi output.", styles["table"])],
+            [p("Không phân biệt được dự án mới", styles["table"]), p("Project chưa có trong danh mục hoặc project master nhưng vẫn bị copy tiếp như dữ liệu bình thường.", styles["table"]), p("Đẩy vào IT_New_Project_Master, Check_IT_Downstream hoặc result tương ứng để người phụ trách duyệt.", styles["table"])],
+            [p("Không nhận ra nhân viên mới", styles["table"]), p("MNV mới, thiếu payroll mapping hoặc duplicate Month+MNV có thể làm output thiếu hoặc sai chi phí.", styles["table"]), p("Check_Payroll và checkpoint nghiệp vụ giúp phát hiện thiếu MNV, thiếu lương hoặc dữ liệu trùng.", styles["table"])],
+            [p("Sửa thẳng output khi phát hiện lỗi", styles["table"]), p("Sửa trực tiếp trong file kết quả có thể nhanh trước mắt nhưng khó audit và dễ mất dấu nguyên nhân gốc.", styles["table"]), p("Approval/result sheet ghi nhận quyết định để truy ngược lại source, staging và người duyệt.", styles["table"])],
+        ],
+        [46 * mm, 68 * mm, 64 * mm],
+        "#A16207",
+        "#F8FAFC",
+        font_size=8.3,
+    )
+    story.append(manual_risk_table)
+    story.append(Spacer(1, 4 * mm))
     story.append(
         p(
             "Khi nói phần này, hãy nhấn mạnh rằng tự động hóa không chỉ để \"nhanh\", mà để biến một quy trình rời rạc thành một quy trình có thể lặp lại và kiểm soát.",
@@ -208,6 +245,30 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
     )
     story.append(benefit_table)
     story.append(Spacer(1, 5 * mm))
+
+    story.append(p("3. Nhìn bằng dữ liệu thật: trước và sau khi áp dụng", styles["h1"]))
+    story.extend(
+        [
+            p(
+                "Trước khi áp dụng, người vận hành phải mở nhiều nguồn, so sánh thủ công và tự nhớ logic mapping. Sau khi áp dụng, cùng một dữ liệu được đưa qua checkpoint, approval và sheet kết quả để người duyệt nhìn thấy vấn đề trước khi output được dùng cho báo cáo.",
+                styles["body"],
+            ),
+            p(
+                "Các ảnh bên dưới được lấy trực tiếp từ bộ asset sinh từ file output mới nhất, gồm source, checkpoint và result sheet. Khi trình bày, đây là phần nên dùng để cho BOD thấy automation không phải là khái niệm trừu tượng, mà là một quy trình đang tạo ra workbook có kiểm soát.",
+                styles["body"],
+            ),
+        ]
+    )
+    append_asset(story, "timesheet_it.png", 178 * mm, "Nguồn trực tiếp: Timesheet IT từ workbook mới nhất.", styles)
+    append_asset(story, "timesheet_media.png", 178 * mm, "Nguồn trực tiếp: Timesheet Media từ workbook mới nhất.", styles)
+    append_asset(story, "data_media_sheet.png", 178 * mm, "Nguồn trực tiếp: Data media ACCA+CFA+CMA dùng để đối chiếu Media.", styles)
+    append_asset(story, "payroll_ft.png", 178 * mm, "Nguồn payroll: Lương nhân viên full time.", styles)
+    append_asset(story, "payroll_pt.png", 178 * mm, "Nguồn payroll: Lương nhân viên part time.", styles)
+    append_asset(story, "approval_guide.png", 178 * mm, "Trong quy trình mới: có sheet hướng dẫn approval để người dùng biết phải duyệt ở đâu.", styles)
+    append_asset(story, "it_approval_result.png", 178 * mm, "Sau khi áp dụng: IT_Approval_Result ghi nhận dữ liệu IT đã được xử lý.", styles)
+    append_asset(story, "project_master_approval_result.png", 178 * mm, "Sau khi áp dụng: Project_Master_Approval_Result ghi nhận phần project master được duyệt.", styles)
+    append_asset(story, "media_approval_result.png", 178 * mm, "Sau khi áp dụng: Media_Approval_Result ghi nhận dữ liệu Media đã được duyệt.", styles)
+    story.append(PageBreak())
 
     story.append(p("3. Ví dụ IT và Media: khi nào cần checkpoint và approval", styles["h1"]))
     story.extend(
@@ -243,6 +304,8 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
     )
     story.append(it_media_table)
     story.append(Spacer(1, 5 * mm))
+    append_asset(story, "check_it_cpns.png", 178 * mm, "IT: Check_IT_CPNS giúp nhìn rõ dữ liệu CPNS trước khi đi tiếp.", styles)
+    append_asset(story, "check_media_timesheet.png", 178 * mm, "Media: Check_Media_Timesheet cho thấy dữ liệu cần được đối chiếu trước khi chốt.", styles)
 
     story.append(p("4. Ví dụ SX: vì sao phải clean staging trước khi gộp output", styles["h1"]))
     story.extend(
@@ -264,6 +327,10 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
 
     story.append(Spacer(1, 4 * mm))
     story.append(p("5. Khi có dự án mới hoặc nhân viên mới thì phải chỉnh gì?", styles["h1"]))
+    append_asset(story, "sx_checkpoint.png", 178 * mm, "SX trước khi gộp: checkpoint data SX dùng để clean dữ liệu ở staging.", styles)
+    append_asset(story, "sx_downstream.png", 178 * mm, "SX downstream: kiểm tra lỗi lan sang các sheet liên quan trước khi ghi output.", styles)
+    append_asset(story, "sx_approval_result.png", 178 * mm, "SX sau khi approval: SX_Approval_Result ghi nhận phần đã được duyệt để đưa vào output.", styles)
+
     changes_table = make_box(
         [
             [p("Tình huống", styles["table"]), p("Sheet thường cần xem / chỉnh", styles["table"]), p("Lý do", styles["table"])],
@@ -344,6 +411,16 @@ def build_pdf(output_path: Path) -> Path:
             fontSize=9,
             leading=12,
             textColor=colors.HexColor("#475569"),
+        ),
+        "caption": ParagraphStyle(
+            "caption",
+            parent=base["BodyText"],
+            fontName=bold_font,
+            fontSize=8.8,
+            leading=11,
+            textColor=colors.HexColor("#1E3A8A"),
+            spaceBefore=2,
+            spaceAfter=2,
         ),
         "table": ParagraphStyle(
             "table",

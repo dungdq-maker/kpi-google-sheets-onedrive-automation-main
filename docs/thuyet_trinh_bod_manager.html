@@ -249,13 +249,113 @@
       max-width: 1100px;
       text-align: center;
     }
+    .visual-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      width: min(1320px, 100%);
+      align-items: stretch;
+    }
+    .visual-grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .visual-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+    }
+    .visual-card img {
+      width: 100%;
+      max-height: 46vh;
+      object-fit: contain;
+      background: #f8fafc;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.12);
+      cursor: zoom-in;
+    }
+    .visual-card h3 {
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 17px;
+      line-height: 1.35;
+    }
+    .visual-card p {
+      color: #c7d2e8;
+      line-height: 1.55;
+      font-size: 14px;
+    }
+    .compare-label {
+      display: inline-flex;
+      width: fit-content;
+      border: 1px solid rgba(216,177,93,.35);
+      color: var(--gold);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 11px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      background: rgba(3, 7, 18, .88);
+    }
+    .lightbox.open {
+      display: flex;
+    }
+    .lightbox-panel {
+      width: min(96vw, 1500px);
+      max-height: 92vh;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: center;
+    }
+    .lightbox img {
+      max-width: 100%;
+      max-height: 82vh;
+      object-fit: contain;
+      background: #f8fafc;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.16);
+      box-shadow: 0 24px 90px rgba(0,0,0,.5);
+    }
+    .lightbox-caption {
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.5;
+      text-align: center;
+    }
+    .lightbox-close {
+      position: fixed;
+      top: 18px;
+      right: 22px;
+      border: 1px solid rgba(255,255,255,.2);
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+      border-radius: 999px;
+      width: 42px;
+      height: 42px;
+      font-size: 24px;
+      cursor: pointer;
+    }
     .footer {
       margin-top: 14px;
       color: var(--muted);
       font-size: 13px;
     }
     @media (max-width: 1100px) {
-      .grid-3, .grid-2, .metrics, .two-col {
+      .grid-3, .grid-2, .metrics, .two-col, .visual-grid, .visual-grid.two {
         grid-template-columns: 1fr;
       }
       .slide { padding: 40px 22px; }
@@ -316,6 +416,197 @@
     </section>
 
     <section class="slide">
+      <div class="eyebrow">TRƯỚC AUTOMATION</div>
+      <h2>Người làm tay dễ sai ở đâu?</h2>
+      <div class="grid-3">
+        
+    <div class="card">
+      <div class="tag">Manual risk</div>
+      <h3>Copy nhưng lệch format</h3>
+      <p>Khi copy từ Google Sheet, Excel hoặc workbook cũ, người làm dễ mang theo format, công thức, merged cell hoặc kiểu ngày tháng khác nhau. Lỗi này thường không thấy ngay, nhưng sẽ làm công thức downstream sai.</p>
+    </div>
+    
+        
+    <div class="card">
+      <div class="tag">Manual risk</div>
+      <h3>Không nhận ra dự án mới</h3>
+      <p>Nếu tên dự án chưa có trong danh mục hoặc project master, người làm tay có thể vẫn copy tiếp mà không biết đây là dòng cần tạo mapping mới trước khi tính chi phí.</p>
+    </div>
+    
+        
+    <div class="card">
+      <div class="tag">Manual risk</div>
+      <h3>Không nhận ra nhân viên mới</h3>
+      <p>MNV mới hoặc nhân viên chưa có payroll mapping có thể đi xuyên qua nhiều sheet. Output vẫn có thể chạy, nhưng chi phí sẽ thiếu, sai hoặc rơi vào nhóm chưa xác định.</p>
+    </div>
+    
+      </div>
+      <div class="grid-3">
+        
+    <div class="card">
+      <div class="tag">Manual risk</div>
+      <h3>Sai ở bước phân loại</h3>
+      <p>IT, Media và SX có logic khác nhau. Khi làm tay, người vận hành dễ nhầm dòng nào thuộc cost, dòng nào thuộc project, dòng nào cần loại khỏi vốn hóa.</p>
+    </div>
+    
+        
+    <div class="card">
+      <div class="tag">Manual risk</div>
+      <h3>Sửa thẳng output</h3>
+      <p>Khi phát hiện lỗi muộn, cách xử lý thường là sửa trực tiếp trong file kết quả. Cách này nhanh trước mắt nhưng khó audit và dễ mất dấu nguyên nhân gốc.</p>
+    </div>
+    
+        
+    <div class="card">
+      <div class="tag">Manual risk</div>
+      <h3>Không biết lỗi lan đến đâu</h3>
+      <p>Một thay đổi nhỏ ở source có thể chạm tới payroll, project master, downstream và result sheet. Làm tay rất khó nhìn hết phạm vi tác động.</p>
+    </div>
+    
+      </div>
+      <div class="notes">Câu nói gợi ý: trước automation, rủi ro lớn không nằm ở một công thức đơn lẻ, mà nằm ở việc con người phải nhớ quá nhiều quy tắc khi copy, map và phân loại dữ liệu.</div>
+    </section>
+
+    <section class="slide">
+      <div class="eyebrow">CHECKPOINT GIÚP GÌ?</div>
+      <h2>Checkpoint biến lỗi âm thầm thành danh sách cần xử lý</h2>
+      <table class="table">
+        <tr><th>Rủi ro khi làm tay</th><th>Checkpoint hỗ trợ thế nào</th><th>Tác dụng quản trị</th></tr>
+        <tr><td><span class="accent">Copy sai format hoặc sai cột</span></td><td>Đưa dữ liệu về staging/check sheet để nhìn lại dòng, tháng, MNV, project và trạng thái trước khi ghi output.</td><td>Giảm lỗi âm thầm do thao tác tay.</td></tr>
+        <tr><td><span class="accent">Dự án mới chưa có mapping</span></td><td>Đẩy vào IT_New_Project_Master, Check_IT_Downstream hoặc result tương ứng để người phụ trách duyệt.</td><td>Không để project mới đi thẳng vào báo cáo khi chưa có master.</td></tr>
+        <tr><td><span class="accent">Nhân viên mới / thiếu MNV</span></td><td>Check_Payroll và checkpoint nghiệp vụ giúp thấy nhân viên chưa map, duplicate Month + MNV hoặc thiếu nguồn lương.</td><td>Giảm sai lệch chi phí vốn hóa do thiếu dữ liệu nhân sự.</td></tr>
+        <tr><td><span class="accent">SX sai ở staging</span></td><td>checkpoint data SX và Check_SX_Downstream cho thấy lỗi nguồn và lỗi lan sang downstream trước khi gộp output.</td><td>Giữ nguyên tắc clean staging trước khi chốt output.</td></tr>
+      </table>
+      <div class="notes">Checkpoint không thay người dùng ra quyết định. Nó đưa đúng câu hỏi ra trước mặt người duyệt: dòng nào thiếu, dòng nào mới, dòng nào cần approve, và nếu approve thì ảnh hưởng đến sheet nào.</div>
+    </section>
+
+    <section class="slide">
+      <div class="eyebrow">ẢNH TỪ FILE MỚI NHẤT</div>
+      <h2>Trước đây: phải mở từng nguồn để tự đối chiếu</h2>
+      <p class="subtitle">Các ảnh này là ảnh sheet riêng lẻ lấy từ file mới nhất: nguồn IT, nguồn Media và Data media. Khi làm tay, người vận hành phải tự mở từng nguồn này để kiểm tra mapping trước khi biết dữ liệu nào đủ điều kiện đi tiếp.</p>
+      <div class="visual-grid">
+        <div class="visual-card">
+          <span class="compare-label">Source / IT</span>
+          <h3>Timesheet IT</h3>
+          <img src="generated_assets/timesheet_it.png" alt="Timesheet IT từ workbook mới nhất">
+          <p>Nguồn IT cho biết nhân sự nào ghi nhận thời gian vào project nào, tháng nào và task nào.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">Source / Media</span>
+          <h3>Timesheet Media</h3>
+          <img src="generated_assets/timesheet_media.png" alt="Timesheet Media từ workbook mới nhất">
+          <p>Nguồn Media cần đối chiếu người làm task, thời gian, project và BU trước khi tính chi phí.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">Source / Media master</span>
+          <h3>Data media ACCA+CFA+CMA</h3>
+          <img src="generated_assets/data_media_sheet.png" alt="Data media ACCA CFA CMA từ workbook mới nhất">
+          <p>Đây là lớp dữ liệu hỗ trợ mapping cho Media. Nếu master lệch, result cuối cũng có thể lệch.</p>
+        </div>
+      </div>
+      <div class="notes">Điểm cần nói: automation không bắt đầu từ output, mà bắt đầu bằng việc nhìn rõ source nào đang nuôi vào bài toán.</div>
+    </section>
+
+    <section class="slide">
+      <div class="eyebrow">SOURCE PAYROLL</div>
+      <h2>Nguồn lương quyết định chi phí vốn hóa</h2>
+      <p class="subtitle">Payroll được lấy từ file nguồn riêng. Đây là phần ảnh trực tiếp từ bảng lương full time và part time để giải thích vì sao source phải đúng trước khi đẩy vào output.</p>
+      <div class="visual-grid two">
+        <div class="visual-card">
+          <span class="compare-label">Payroll source</span>
+          <h3>Lương nhân viên full time</h3>
+          <img src="generated_assets/payroll_ft.png" alt="Nguồn lương nhân viên full time">
+          <p>Nguồn lương full time là đầu vào chính để tính chi phí nhân sự theo tháng và theo mã nhân viên.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">Payroll source</span>
+          <h3>Lương nhân viên part time</h3>
+          <img src="generated_assets/payroll_pt.png" alt="Nguồn lương nhân viên part time">
+          <p>Nguồn part time cần được kiểm soát riêng vì logic dòng, tháng và nhân viên có thể khác full time.</p>
+        </div>
+      </div>
+      <div class="notes">Khi trình bày, có thể nói: payroll sai thì mọi phép tính vốn hóa phía sau đều mất nền tảng.</div>
+    </section>
+
+    <section class="slide">
+      <div class="eyebrow">CHECKPOINT / APPROVAL</div>
+      <h2>Trong quy trình mới: lỗi được đưa ra ánh sáng trước khi chốt</h2>
+      <div class="visual-grid">
+        <div class="visual-card">
+          <span class="compare-label">Control</span>
+          <h3>Hướng dẫn approval</h3>
+          <img src="generated_assets/approval_guide.png" alt="Sheet hướng dẫn approval">
+          <p>Người dùng biết cần mở sheet nào, duyệt dòng nào, và chạy lại automation bằng file approval nào.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">IT</span>
+          <h3>Check_IT_CPNS</h3>
+          <img src="generated_assets/check_it_cpns.png" alt="Check IT CPNS từ workbook mới nhất">
+          <p>Checkpoint IT cho thấy dòng nào cần kiểm tra trước khi chi phí nhân sự IT đi tiếp.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">Media</span>
+          <h3>Check_Media_Timesheet</h3>
+          <img src="generated_assets/check_media_timesheet.png" alt="Check Media Timesheet từ workbook mới nhất">
+          <p>Checkpoint Media kiểm tra mapping giữa Timesheet Media và Data media trước khi đẩy vào result.</p>
+        </div>
+      </div>
+      <div class="notes">Đây là điểm khác biệt lớn so với làm tay: người duyệt nhìn thấy ngoại lệ ở checkpoint, không phải phát hiện lỗi sau khi báo cáo đã ra.</div>
+    </section>
+
+    <section class="slide">
+      <div class="eyebrow">CHECKPOINT THEO NGHIỆP VỤ</div>
+      <h2>Payroll và SX cũng có lớp kiểm soát riêng</h2>
+      <div class="visual-grid">
+        <div class="visual-card">
+          <span class="compare-label">Payroll</span>
+          <h3>Check_Payroll</h3>
+          <img src="generated_assets/check_payroll.png" alt="Check Payroll từ workbook mới nhất">
+          <p>Kiểm soát source path, thời điểm cập nhật, số dòng copy và duplicate Month + MNV.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">SX / Staging</span>
+          <h3>checkpoint data SX</h3>
+          <img src="generated_assets/sx_checkpoint.png" alt="Checkpoint data SX từ workbook mới nhất">
+          <p>Đây là nơi nhìn lỗi nguồn SX trước: MNV thiếu, mapping lệch, hoặc dòng cần làm sạch.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">SX / Downstream</span>
+          <h3>Check_SX_Downstream</h3>
+          <img src="generated_assets/sx_downstream.png" alt="Check SX Downstream từ workbook mới nhất">
+          <p>Kiểm tra tác động sang các sheet SX liên quan trước khi ghi output.</p>
+        </div>
+      </div>
+      <div class="notes">Với SX, thông điệp chính là clean dữ liệu ở staging trước khi gộp vào output.</div>
+    </section>
+
+    <section class="slide">
+      <div class="eyebrow">AFTER / OUTPUT</div>
+      <h2>Sau khi áp dụng: output có result sheet để audit</h2>
+      <div class="visual-grid">
+        <div class="visual-card">
+          <span class="compare-label">IT result</span>
+          <h3>IT_Approval_Result</h3>
+          <img src="generated_assets/it_approval_result.png" alt="IT Approval Result từ workbook mới nhất">
+          <p>Ghi nhận kết quả duyệt của IT sau checkpoint.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">Project result</span>
+          <h3>Project_Master_Approval_Result</h3>
+          <img src="generated_assets/project_master_approval_result.png" alt="Project Master Approval Result từ workbook mới nhất">
+          <p>Ghi nhận project mới hoặc mapping project đã được duyệt.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">Media result</span>
+          <h3>Media_Approval_Result</h3>
+          <img src="generated_assets/media_approval_result.png" alt="Media Approval Result từ workbook mới nhất">
+          <p>Ghi nhận các dòng Media được duyệt để đưa vào output.</p>
+        </div>
+      </div>
+      <div class="notes">Điểm cần chốt: output không chỉ là file cuối, mà là bằng chứng của một quy trình có kiểm soát.</div>
+    </section>
+
+    <section class="slide">
       <div class="eyebrow">LỢI ÍCH ĐỊNH LƯỢNG</div>
       <h2>Vì sao tự động hóa đáng làm?</h2>
       <table class="table">
@@ -337,6 +628,32 @@
         </div>
       </div>
       <div class="notes">Thông điệp ngắn cho BOD: tự động hóa không chỉ tạo file nhanh hơn, mà còn chuẩn hóa quyết định, giảm rủi ro dữ liệu, và giúp chi phí vốn hóa được tính trên bộ dữ liệu sạch hơn.</div>
+    </section>
+
+    <section class="slide">
+      <div class="eyebrow">VÍ DỤ SX</div>
+      <h2>SX: clean staging trước khi gộp output</h2>
+      <div class="visual-grid">
+        <div class="visual-card">
+          <span class="compare-label">Staging</span>
+          <h3>Checkpoint data SX</h3>
+          <img src="generated_assets/sx_checkpoint.png" alt="Checkpoint data SX">
+          <p>Đây là nơi nhìn lỗi nguồn SX trước: MNV thiếu, mapping lệch, dòng không đủ điều kiện hoặc dữ liệu cần làm sạch.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">Downstream</span>
+          <h3>Check_SX_Downstream</h3>
+          <img src="generated_assets/sx_downstream.png" alt="Check SX Downstream">
+          <p>Kiểm tra tác động sang SX_Allocation_Build, Timesheet SX, chi phí nhân sự SX và vốn hóa trước khi ghi output.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">After</span>
+          <h3>SX Approval Result</h3>
+          <img src="generated_assets/sx_approval_result.png" alt="SX Approval Result từ workbook mới nhất">
+          <p>Sau khi duyệt, result sheet ghi nhận phần được đưa vào output. Đây là điểm giúp quy trình có thể audit lại.</p>
+        </div>
+      </div>
+      <div class="notes">Câu nói chính cho slide này: với SX, xử lý đúng là làm sạch staging trước, rồi mới gộp vào output cuối.</div>
     </section>
 
     <section class="slide">
@@ -423,5 +740,47 @@
       <div class="footer">Mở file HTML này trên trình duyệt để trình chiếu. Nếu muốn, có thể dùng F11 hoặc chế độ toàn màn hình.</div>
     </section>
   </main>
+  <div class="lightbox" id="imageLightbox" aria-hidden="true">
+    <button class="lightbox-close" type="button" aria-label="Đóng ảnh phóng to">×</button>
+    <div class="lightbox-panel">
+      <img id="lightboxImage" alt="">
+      <div class="lightbox-caption" id="lightboxCaption"></div>
+    </div>
+  </div>
+  <script>
+    const lightbox = document.getElementById('imageLightbox');
+    const lightboxImage = document.getElementById('lightboxImage');
+    const lightboxCaption = document.getElementById('lightboxCaption');
+    const closeButton = lightbox.querySelector('.lightbox-close');
+
+    function openLightbox(img) {
+      lightboxImage.src = img.currentSrc || img.src;
+      lightboxImage.alt = img.alt || '';
+      const card = img.closest('.visual-card');
+      const title = card?.querySelector('h3')?.textContent || 'Ảnh minh họa';
+      const description = card?.querySelector('p')?.textContent || '';
+      lightboxCaption.textContent = description ? `${title} - ${description}` : title;
+      lightbox.classList.add('open');
+      lightbox.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeLightbox() {
+      lightbox.classList.remove('open');
+      lightbox.setAttribute('aria-hidden', 'true');
+      lightboxImage.removeAttribute('src');
+      lightboxCaption.textContent = '';
+    }
+
+    document.querySelectorAll('.visual-card img').forEach((img) => {
+      img.addEventListener('click', () => openLightbox(img));
+    });
+    closeButton.addEventListener('click', closeLightbox);
+    lightbox.addEventListener('click', (event) => {
+      if (event.target === lightbox) closeLightbox();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && lightbox.classList.contains('open')) closeLightbox();
+    });
+  </script>
 </body>
 </html>
