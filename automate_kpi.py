@@ -8,6 +8,7 @@ import re
 import shutil
 import sys
 import zipfile
+from collections import defaultdict
 import urllib.request
 import unicodedata
 from copy import copy
@@ -3181,6 +3182,284 @@ def write_media_approval_result_sheet(wb, results: list[list[Any]]) -> None:
         ws.column_dimensions[col].width = width
 
 
+def build_media_checkpoint_data(
+    wb,
+) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]], list[list[Any]]]:
+    data_ws = find_sheet(wb, SHEET_MEDIA)
+    ts_ws = find_sheet(wb, SHEET_TIMESHEET_MEDIA)
+    fulltime_ws = find_sheet(wb, SHEET_SALARY_FULLTIME)
+    if data_ws is None or ts_ws is None or fulltime_ws is None:
+        summary_rows = [[month, 0, 0, 0] for month in range(1, 13)]
+        placeholder = [[None] * 15]
+        return summary_rows, placeholder, placeholder, []
+
+    salary_lookup: dict[tuple[int, str], Any] = {}
+    for r in range(3, (fulltime_ws.max_row or 0) + 1):
+        month = month_number(fulltime_ws.cell(r, 1).value)
+        employee_code = clean(fulltime_ws.cell(r, 5).value)
+        n_hours = parse_hours(fulltime_ws.cell(r, 14).value) or 0
+        t_hours = parse_hours(fulltime_ws.cell(r, 20).value) or 0
+        standard_hours = n_hours * 8 + t_hours
+        if month is None or not employee_code:
+            continue
+        salary_lookup[(month, norm(employee_code))] = standard_hours
+
+    ts_exact_map: dict[tuple[str, str, str, str], list[int]] = defaultdict(list)
+    ts_clean_map: dict[tuple[str, str, str, str], list[int]] = defaultdict(list)
+    ts_employee_rows: dict[str, list[int]] = defaultdict(list)
+    for r in range(4, (ts_ws.max_row or 0) + 1):
+        bu = clean(ts_ws.cell(r, 2).value)
+        project = clean(ts_ws.cell(r, 4).value)
+        employee = clean(ts_ws.cell(r, 7).value)
+        mnv = clean(ts_ws.cell(r, 6).value)
+        if not any([bu, project, employee, mnv]):
+            continue
+        exact_key = (str(bu or ""), str(project or ""), str(employee or ""), str(mnv or ""))
+        clean_key = (norm(bu), norm(project), norm(employee), norm(mnv))
+        ts_exact_map[exact_key].append(r)
+        ts_clean_map[clean_key].append(r)
+        if mnv:
+            ts_employee_rows[norm(mnv)].append(r)
+
+    monthly_groups: dict[tuple[int, str, str, str, str], dict[str, Any]] = {}
+    source_issue_rows: list[list[Any]] = []
+    for r in range(MEDIA_TEMPLATE_ROW, (data_ws.max_row or 0) + 1):
+        bu = clean(data_ws.cell(r, 1).value)
+        project = clean(data_ws.cell(r, 2).value)
+        task = clean(data_ws.cell(r, 3).value)
+        hours = parse_hours(data_ws.cell(r, 4).value)
+        month = month_number(data_ws.cell(r, 5).value) or parse_month_value(data_ws.cell(r, 5).value)
+        employee = clean(data_ws.cell(r, 6).value)
+        mnv = clean(data_ws.cell(r, 7).value)
+        if not any([bu, project, task, hours, month, employee, mnv]):
+            continue
+        if month is None:
+            continue
+
+        standard_hours = salary_lookup.get((month, norm(mnv or "")))
+        if not isinstance(standard_hours, (int, float)) or not standard_hours:
+            source_issue_rows.append(
+                [
+                    r,
+                    project,
+                    month,
+                    employee,
+                    mnv,
+                    hours,
+                    f"=D{r}/H{r}",
+                    "missing salary standard hours for media employee/month",
+                    "FIX_MEDIA_WEIGHT_OR_MONTH",
+                    "Y",
+                    "Y",
+                ]
+            )
+
+        group_key = (month, norm(bu), norm(project), norm(employee), norm(mnv))
+        group = monthly_groups.setdefault(
+            group_key,
+            {
+                "month": month,
+                "bu": bu,
+                "project": project,
+                "employee": employee,
+                "mnv": mnv,
+                "data_rows": [],
+                "hours_total": 0.0,
+                "standard_hours": standard_hours,
+            },
+        )
+        group["data_rows"].append(r)
+        if isinstance(hours, (int, float)):
+            group["hours_total"] += float(hours)
+        if not isinstance(group.get("standard_hours"), (int, float)) and isinstance(standard_hours, (int, float)):
+            group["standard_hours"] = standard_hours
+
+    summary_rows: list[list[Any]] = []
+    for month in range(1, 13):
+        row_num = month + 2
+        summary_rows.append(
+            [
+                month,
+                f"=SUMIF('{SHEET_MEDIA}'!$E:$E,A{row_num},'{SHEET_MEDIA}'!$I:$I)",
+                f"=SUM(INDEX('{SHEET_TIMESHEET_MEDIA}'!$I:$S,0,A{row_num}))",
+                f"=C{row_num}-B{row_num}",
+            ]
+        )
+
+    detail_rows: list[list[Any]] = []
+    over100_rows: list[list[Any]] = []
+    for group in monthly_groups.values():
+        exact_key = (str(group["bu"] or ""), str(group["project"] or ""), str(group["employee"] or ""), str(group["mnv"] or ""))
+        clean_key = (norm(group["bu"]), norm(group["project"]), norm(group["employee"]), norm(group["mnv"]))
+        exact_rows = ts_exact_map.get(exact_key, [])
+        clean_rows = ts_clean_map.get(clean_key, [])
+        matched_exact = bool(exact_rows)
+        matched_after_clean = bool(clean_rows)
+        standard_hours = group.get("standard_hours")
+        input_value = float(group["hours_total"]) / float(standard_hours) if isinstance(standard_hours, (int, float)) and standard_hours else 0
+
+        if not matched_after_clean:
+            detail_rows.append(
+                [
+                    group["month"],
+                    group["project"],
+                    group["employee"],
+                    group["mnv"],
+                    ", ".join(str(r) for r in group["data_rows"]),
+                    input_value,
+                    0,
+                    -input_value,
+                    ", ".join(str(r) for r in exact_rows) if exact_rows else None,
+                    ", ".join(str(r) for r in clean_rows) if clean_rows else None,
+                    matched_after_clean,
+                    "missing row/formula in Timesheet Media",
+                    "ADD_TIMESHEET_MEDIA_ROW",
+                    "Y",
+                    "Y",
+                ]
+            )
+        elif not matched_exact:
+            detail_rows.append(
+                [
+                    group["month"],
+                    group["project"],
+                    group["employee"],
+                    group["mnv"],
+                    ", ".join(str(r) for r in group["data_rows"]),
+                    input_value,
+                    0,
+                    -input_value,
+                    ", ".join(str(r) for r in exact_rows) if exact_rows else None,
+                    ", ".join(str(r) for r in clean_rows) if clean_rows else None,
+                    matched_after_clean,
+                    "criteria text mismatch, likely whitespace",
+                    "CLEAN_TIMESHEET_MEDIA_TEXT",
+                    "Y",
+                    "Y",
+                ]
+            )
+
+        if isinstance(input_value, (int, float)) and input_value > 1:
+            ts_rows = ts_employee_rows.get(norm(group["mnv"] or ""), [])
+            over100_rows.append(
+                [
+                    group["month"],
+                    group["mnv"],
+                    group["employee"],
+                    input_value,
+                    input_value - 1,
+                    ", ".join(str(r) for r in ts_rows) if ts_rows else None,
+                    "employee month over 100%",
+                    "REDUCE_MEDIA_ALLOCATION_OR_FIX_PAYROLL_HOURS",
+                    "Y",
+                    "Y",
+                ]
+            )
+
+    if not detail_rows:
+        detail_rows.append([None] * 15)
+    if not source_issue_rows:
+        source_issue_rows.append([None] * 11)
+
+    return summary_rows, detail_rows, source_issue_rows, over100_rows
+
+
+def write_media_checkpoint_sheet(
+    wb,
+    summary_rows: list[list[Any]],
+    detail_rows: list[list[Any]],
+    source_issue_rows: list[list[Any]],
+    over100_rows: list[list[Any]],
+) -> None:
+    ws = reset_sheet(wb, "Check_Media_Timesheet")
+    next_row = append_table(
+        ws,
+        1,
+        "Summary",
+        ["Month", "Input Data media", "Processed Timesheet Media", "Diff"],
+        summary_rows,
+    )
+    next_row = append_table(
+        ws,
+        next_row + 1,
+        "Details",
+        [
+            "Month",
+            "Project",
+            "Employee",
+            "MNV",
+            "Data media rows",
+            "Input value",
+            "Processed value",
+            "Diff",
+            "Timesheet Media rows matched exact",
+            "Timesheet Media rows matched after clean",
+            "Matched after clean",
+            "Issue",
+            "Recommended action",
+            "Apply?",
+            "Approval notes",
+        ],
+        detail_rows,
+    )
+    next_row = append_table(
+        ws,
+        next_row + 1,
+        "Source Issues",
+        [
+            "Data media row",
+            "Project",
+            "Month",
+            "Employee",
+            "MNV",
+            "Hours",
+            "Weight value/formula",
+            "Issue",
+            "Recommended action",
+            "Apply?",
+            "Approval notes",
+        ],
+        source_issue_rows,
+    )
+    append_table(
+        ws,
+        next_row + 1,
+        "Employee Month Over 100%",
+        [
+            "Month",
+            "MNV",
+            "Employee",
+            "Total % work",
+            "Over by",
+            "Timesheet Media rows",
+            "Issue",
+            "Recommended action",
+            "Apply?",
+            "Approval notes",
+        ],
+        over100_rows,
+    )
+    ws.freeze_panes = "A17"
+    for col, width in {
+        "A": 10,
+        "B": 36,
+        "C": 24,
+        "D": 16,
+        "E": 18,
+        "F": 16,
+        "G": 18,
+        "H": 18,
+        "I": 20,
+        "J": 24,
+        "K": 16,
+        "L": 34,
+        "M": 30,
+        "N": 12,
+        "O": 18,
+    }.items():
+        ws.column_dimensions[col].width = width
+
+
 def write_downstream_approval_result_sheet(wb, results: list[list[Any]]) -> None:
     ws = reset_sheet(wb, "Downstream_Approval_Result")
     headers = ["Approval row", "Action", "Project code", "Project name", "Status"]
@@ -4205,6 +4484,11 @@ def run(
     )
     if restored_it_checkpoints:
         print(f"  restored missing checkpoint sheets from latest output: {', '.join(restored_it_checkpoints)}")
+
+    if SHEET_MEDIA in wb.sheetnames and SHEET_TIMESHEET_MEDIA in wb.sheetnames and SHEET_SALARY_FULLTIME in wb.sheetnames:
+        media_summary, media_details, media_source_issues, media_over100 = build_media_checkpoint_data(wb)
+        write_media_checkpoint_sheet(wb, media_summary, media_details, media_source_issues, media_over100)
+        print("  rebuilt checkpoint sheet: Check_Media_Timesheet")
 
     if SHEET_IT in wb.sheetnames and SHEET_IT_COST in wb.sheetnames and SHEET_PROJECT_CATALOG in wb.sheetnames:
         it_cpns_summary, it_cpns_details = build_it_cpns_checkpoint_data(wb)
