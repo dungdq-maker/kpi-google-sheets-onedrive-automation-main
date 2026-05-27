@@ -55,7 +55,7 @@ def build_html() -> str:
       --radius: 22px;
     }}
     * {{ box-sizing: border-box; }}
-    html, body {{ margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: "Segoe UI", Arial, sans-serif; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }}
+    html, body {{ margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: "Segoe UI", Arial, sans-serif; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }}
     body {{
       background:
         linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
@@ -66,17 +66,30 @@ def build_html() -> str:
     }}
     .deck {{
       width: 100%;
-      min-height: 100vh;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
     }}
     .slide {{
+      position: absolute;
+      inset: 0;
       min-height: 100vh;
       padding: 64px 64px 56px;
-      display: flex;
+      display: none;
       flex-direction: column;
       justify-content: center;
       align-items: center;
       gap: 18px;
       border-bottom: 1px solid var(--line);
+      overflow: auto;
+      opacity: 0;
+      transform: translateX(18px);
+      transition: opacity .22s ease, transform .22s ease;
+    }}
+    .slide.active {{
+      display: flex;
+      opacity: 1;
+      transform: translateX(0);
     }}
     .eyebrow {{
       color: var(--gold);
@@ -383,6 +396,44 @@ def build_html() -> str:
       font-size: 24px;
       cursor: pointer;
     }}
+    .deck-nav {{
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 999px;
+      background: rgba(3, 7, 18, .72);
+      box-shadow: 0 16px 50px rgba(0,0,0,.32);
+      backdrop-filter: blur(10px);
+    }}
+    .nav-button {{
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+    }}
+    .nav-button:disabled {{
+      opacity: .35;
+      cursor: not-allowed;
+    }}
+    .slide-counter {{
+      min-width: 64px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }}
     .footer {{
       margin-top: 14px;
       color: var(--muted);
@@ -393,6 +444,7 @@ def build_html() -> str:
         grid-template-columns: 1fr;
       }}
       .slide {{ padding: 40px 22px; }}
+      .deck-nav {{ bottom: 10px; }}
       h1 {{ max-width: none; }}
     }}
   </style>
@@ -720,6 +772,11 @@ def build_html() -> str:
       <div class="footer">Mở file HTML này trên trình duyệt để trình chiếu. Nếu muốn, có thể dùng F11 hoặc chế độ toàn màn hình.</div>
     </section>
   </main>
+  <nav class="deck-nav" aria-label="Điều hướng slide">
+    <button class="nav-button" id="prevSlide" type="button" aria-label="Slide trước">‹</button>
+    <div class="slide-counter" id="slideCounter">1 / 1</div>
+    <button class="nav-button" id="nextSlide" type="button" aria-label="Slide tiếp theo">›</button>
+  </nav>
   <div class="lightbox" id="imageLightbox" aria-hidden="true">
     <button class="lightbox-close" type="button" aria-label="Đóng ảnh phóng to">×</button>
     <div class="lightbox-panel">
@@ -732,6 +789,27 @@ def build_html() -> str:
     const lightboxImage = document.getElementById('lightboxImage');
     const lightboxCaption = document.getElementById('lightboxCaption');
     const closeButton = lightbox.querySelector('.lightbox-close');
+    const slides = Array.from(document.querySelectorAll('.slide'));
+    const prevSlide = document.getElementById('prevSlide');
+    const nextSlide = document.getElementById('nextSlide');
+    const slideCounter = document.getElementById('slideCounter');
+    let currentSlide = 0;
+
+    function showSlide(index) {{
+      currentSlide = Math.max(0, Math.min(index, slides.length - 1));
+      slides.forEach((slide, slideIndex) => {{
+        slide.classList.toggle('active', slideIndex === currentSlide);
+        if (slideIndex === currentSlide) slide.scrollTop = 0;
+      }});
+      prevSlide.disabled = currentSlide === 0;
+      nextSlide.disabled = currentSlide === slides.length - 1;
+      slideCounter.textContent = `${{currentSlide + 1}} / ${{slides.length}}`;
+      window.location.hash = `slide-${{currentSlide + 1}}`;
+    }}
+
+    function moveSlide(direction) {{
+      showSlide(currentSlide + direction);
+    }}
 
     function openLightbox(img) {{
       lightboxImage.src = img.currentSrc || img.src;
@@ -754,13 +832,30 @@ def build_html() -> str:
     document.querySelectorAll('.visual-card img').forEach((img) => {{
       img.addEventListener('click', () => openLightbox(img));
     }});
+    prevSlide.addEventListener('click', () => moveSlide(-1));
+    nextSlide.addEventListener('click', () => moveSlide(1));
     closeButton.addEventListener('click', closeLightbox);
     lightbox.addEventListener('click', (event) => {{
       if (event.target === lightbox) closeLightbox();
     }});
     document.addEventListener('keydown', (event) => {{
-      if (event.key === 'Escape' && lightbox.classList.contains('open')) closeLightbox();
+      if (event.key === 'Escape' && lightbox.classList.contains('open')) {{
+        closeLightbox();
+        return;
+      }}
+      if (lightbox.classList.contains('open')) return;
+      if (event.key === 'ArrowRight' || event.key === 'PageDown' || event.key === ' ') {{
+        event.preventDefault();
+        moveSlide(1);
+      }}
+      if (event.key === 'ArrowLeft' || event.key === 'PageUp') {{
+        event.preventDefault();
+        moveSlide(-1);
+      }}
     }});
+    const initialMatch = window.location.hash.match(/^#slide-(\\d+)$/);
+    const initialSlide = initialMatch ? Number(initialMatch[1]) - 1 : 0;
+    showSlide(initialSlide);
   </script>
 </body>
 </html>
