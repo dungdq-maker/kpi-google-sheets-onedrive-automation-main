@@ -523,7 +523,7 @@ def build_html() -> str:
       <table class="table">
         <tr><th>Rủi ro khi làm tay</th><th>Checkpoint hỗ trợ thế nào</th><th>Tác dụng quản trị</th></tr>
         <tr><td><span class="accent">Copy sai format hoặc sai cột</span></td><td>Đưa dữ liệu về staging/check sheet để nhìn lại dòng, tháng, MNV, project và trạng thái trước khi ghi output.</td><td>Giảm lỗi âm thầm do thao tác tay.</td></tr>
-        <tr><td><span class="accent">Dự án mới chưa có mapping</span></td><td>Đẩy vào IT_New_Project_Master, Check_IT_Downstream hoặc result tương ứng để người phụ trách duyệt.</td><td>Không để project mới đi thẳng vào báo cáo khi chưa có master.</td></tr>
+        <tr><td><span class="accent">Dự án mới chưa có mapping</span></td><td>Đẩy vào IT_New_Project_Master trước; sau khi duyệt mới chạy Check_IT_Downstream và đưa vào 3.Vốn hóa.</td><td>Không để project mới đi thẳng vào báo cáo khi chưa có master.</td></tr>
         <tr><td><span class="accent">Nhân viên mới / thiếu MNV</span></td><td>Check_Payroll và checkpoint nghiệp vụ giúp thấy nhân viên chưa map, duplicate Month + MNV hoặc thiếu nguồn lương.</td><td>Giảm sai lệch chi phí vốn hóa do thiếu dữ liệu nhân sự.</td></tr>
         <tr><td><span class="accent">SX sai ở staging</span></td><td>checkpoint data SX và Check_SX_Downstream cho thấy lỗi nguồn và lỗi lan sang downstream trước khi gộp output.</td><td>Giữ nguyên tắc clean staging trước khi chốt output.</td></tr>
       </table>
@@ -592,7 +592,7 @@ def build_html() -> str:
           <span class="compare-label">IT</span>
           <h3>Check_IT_CPNS</h3>
           <img src="generated_assets/check_it_cpns.png" alt="Check IT CPNS từ workbook mới nhất">
-          <p>Checkpoint IT cho thấy dòng nào cần kiểm tra trước khi chi phí nhân sự IT đi tiếp.</p>
+          <p>Checkpoint IT chỉ so chênh lệch giữa Timesheet IT và Chi phí nhân sự IT. Project mới và mapping mới đi sang IT_New_Project_Master.</p>
         </div>
         <div class="visual-card">
           <span class="compare-label">Media</span>
@@ -719,8 +719,8 @@ def build_html() -> str:
           <div class="tag">Khi có dự án mới</div>
           <ul class="list">
             <li>Thường phải bổ sung ở 1.Danh mục dự án.</li>
-            <li>Có thể phải cập nhật IT_New_Project_Master nếu cần đưa project vào luồng IT.</li>
-            <li>Rà lại Check_IT_Downstream để bảo đảm project mới rơi đúng vào chi phí và báo cáo.</li>
+            <li>Cập nhật IT_New_Project_Master nếu project chưa có trong catalog.</li>
+            <li>Rà lại Check_IT_Downstream để bảo đảm project mới rơi đúng vào 1.Danh mục dự án và 3.Vốn hóa.</li>
           </ul>
         </div>
         <div class="box">
@@ -740,7 +740,7 @@ def build_html() -> str:
       <h2>Thay đổi một đầu vào thì đụng bao nhiêu sheet?</h2>
       <table class="table">
         <tr><th>Tình huống</th><th>Sheet thường cần xem / chỉnh</th><th>Ghi chú</th></tr>
-        <tr><td><span class="accent">Dự án mới</span></td><td>1.Danh mục dự án, IT_New_Project_Master, Check_IT_Downstream, 3.Vốn hóa</td><td>Có thể thêm cả sheet result của IT nếu duyệt lại.</td></tr>
+        <tr><td><span class="accent">Dự án mới</span></td><td>IT_New_Project_Master, 1.Danh mục dự án, Check_IT_Downstream, 3.Vốn hóa</td><td>Check_IT_CPNS chỉ còn soi mismatch giữa Timesheet IT và Chi phí nhân sự IT.</td></tr>
         <tr><td><span class="accent">Nhân viên mới</span></td><td>Mã nhân viên, Check_Payroll, Timesheet IT / Media / SX, checkpoint tương ứng</td><td>Nếu map chưa xong thì output vẫn chạy nhưng sẽ thiếu / sai dữ liệu.</td></tr>
         <tr><td><span class="accent">Lương mới</span></td><td>Lương nhân viên full time, Lương nhân viên part time, Check_Payroll</td><td>Đây là lớp nguồn, phải đúng trước khi đẩy vào output.</td></tr>
         <tr><td><span class="accent">SX phát sinh lỗi</span></td><td>checkpoint data SX, Check_SX_Downstream, SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX, 3.Vốn hóa</td><td>Nguyên tắc: clean ở staging trước khi gộp output.</td></tr>

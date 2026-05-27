@@ -787,9 +787,8 @@ def build_sx_downstream_checkpoint_data(
         if program == "CFA" and not include_cfa:
             skipped_rows += 1
             continue
-        # Only keep rows whose project already exists in 3.Vốn hóa.
-        # This avoids false downstream issues for projects that are not capitalized.
-        # The whitelist is built after we load the capitalization sheet below.
+        # Keep all valid SX rows and let downstream approval decide whether the
+        # project should be added to 1.Danh mục dự án / 3.Vốn hóa.
         filtered_rows.append(row)
         if not lookup_employee_code(employee_lookup, row.get("employee")):
             missing_mnv_rows += 1
@@ -832,8 +831,9 @@ def build_sx_downstream_checkpoint_data(
         ])
         return summary, details
 
-    capitalization_projects: dict[str, str] = {}
-    capital_project_codes: dict[str, str] = {}
+    catalog_projects: dict[str, str] = {}
+    capital_projects: dict[str, str] = {}
+    project_codes: dict[str, str] = {}
     capital_source_wb = capital_values_wb or wb
     catalog_ws = find_sheet(capital_source_wb, SHEET_PROJECT_CATALOG)
     if catalog_ws is not None:
@@ -841,12 +841,19 @@ def build_sx_downstream_checkpoint_data(
             project_name = clean(catalog_ws.cell(r, 3).value)
             project_code = clean(catalog_ws.cell(r, 2).value)
             if project_name:
-                capitalization_projects[norm(project_name)] = project_name
-            if project_name and project_code:
-                capital_project_codes[norm(project_name)] = str(project_code)
+                catalog_projects[norm(project_name)] = project_name
+            if project_name and project_code and norm(project_name) not in project_codes:
+                project_codes[norm(project_name)] = str(project_code)
+    if capital_ws is not None:
+        for r in range(3, capital_ws.max_row + 1):
+            project_name = clean(capital_ws.cell(r, 3).value)
+            project_code = clean(capital_ws.cell(r, 2).value)
+            if project_name:
+                capital_projects[norm(project_name)] = project_name
+            if project_name and project_code and norm(project_name) not in project_codes:
+                project_codes[norm(project_name)] = str(project_code)
 
     eligible_rows: list[dict[str, Any]] = []
-    excluded_by_whitelist = 0
     for row in filtered_rows:
         program = clean(row.get("program"))
         project_raw = clean(row.get("project"))
@@ -858,13 +865,11 @@ def build_sx_downstream_checkpoint_data(
             [(1, year), (2, program), (4, project_raw), (5, "SX"), (6, employee), (7, employee_code)],
         )
         capital_project = clean(timesheet_ws.cell(ts_row, 3).value) if ts_row is not None else None
-        if not capital_project or norm(capital_project) not in capitalization_projects:
-            excluded_by_whitelist += 1
-            continue
         enriched = dict(row)
         enriched["_capital_project"] = capital_project
         enriched["_timesheet_row"] = ts_row
         enriched["_employee_code"] = employee_code
+        enriched["_project_code"] = project_codes.get(norm(capital_project or project_raw))
         eligible_rows.append(enriched)
 
     pairs: dict[tuple[str, str], dict[str, Any]] = {}
@@ -917,6 +922,7 @@ def build_sx_downstream_checkpoint_data(
             row.get("employee"),
             row.get("position"),
             lookup_employee_code(employee_lookup, row.get("employee")),
+            row.get("_project_code"),
             row.get("project"),
             issue,
             recommended_action,
@@ -955,7 +961,55 @@ def build_sx_downstream_checkpoint_data(
             actual_target=None,
         )
 
+    projects_needing_approval: set[str] = set()
+    project_approval_rows = 0
+    missing_catalog_projects = 0
+    missing_capital_projects = 0
+    for project_key, row in projects.items():
+        project_name = clean(row.get("_capital_project") or row.get("project"))
+        project_code = clean(row.get("_project_code")) or project_codes.get(project_key)
+        catalog_row = find_row_by_clean_value(catalog_ws, 3, project_name, start_row=2) if catalog_ws is not None else None
+        capital_row = find_row_by_clean_value(capital_ws, 3, project_name, start_row=3) if capital_ws is not None else None
+
+        catalog_exists = catalog_row is not None
+        capital_exists = capital_row is not None
+        if not catalog_exists:
+            missing_catalog_projects += 1
+        if not capital_exists:
+            missing_capital_projects += 1
+        if catalog_exists and capital_exists:
+            continue
+
+        projects_needing_approval.add(project_key)
+        sample_row = dict(row)
+        sample_row["_project_code"] = project_code
+        sample_row["employee"] = None
+        sample_row["position"] = None
+        sample_row["_employee_code"] = None
+
+        issue_parts: list[str] = []
+        recommended_action: list[str] = []
+        if not catalog_exists:
+            issue_parts.append("missing in 1.Danh mục dự án")
+            recommended_action.append("ADD_TO_PROJECT_CATALOG")
+        if not capital_exists:
+            issue_parts.append("missing in 3.Vốn hóa")
+            recommended_action.append("ADD_TO_CAPITALIZATION")
+
+        add_issue(
+            "1.Danh mục dự án" if not catalog_exists else SHEET_CAPITALIZATION,
+            sample_row,
+            "; ".join(issue_parts),
+            "; ".join(recommended_action),
+            expected_target=project_name,
+            actual_target=project_code,
+            matched="NO",
+        )
+        project_approval_rows += 1
+
     for (project_key, employee_key), row in pairs.items():
+        if project_key in projects_needing_approval:
+            continue
         program = clean(row.get("program"))
         project = clean(row.get("project"))
         capital_project = clean(row.get("_capital_project") or row.get("project"))
@@ -1028,8 +1082,10 @@ def build_sx_downstream_checkpoint_data(
             matched_cost += 1
 
     for project_key, row in projects.items():
+        if project_key in projects_needing_approval:
+            continue
         project = clean(row.get("_capital_project") or row.get("project"))
-        project_code = capital_project_codes.get(norm(project))
+        project_code = clean(row.get("_project_code")) or project_codes.get(norm(project))
         capital_row = None
         if project_code:
             capital_row = find_row_with_exact_match(capital_ws, 3, [(2, project_code)])
@@ -1050,7 +1106,9 @@ def build_sx_downstream_checkpoint_data(
 
     summary.extend([
         ["Rows staged from Data SX ACCA+CMA", len(filtered_rows)],
-        ["Rows eligible for downstream by 3.Vốn hóa whitelist", len(eligible_rows)],
+        ["Projects needing downstream approval", project_approval_rows],
+        ["Projects missing in 1.Danh mục dự án", missing_catalog_projects],
+        ["Projects missing in 3.Vốn hóa", missing_capital_projects],
         ["Rows matched in SX_Allocation_Build", matched_consol],
         ["Rows missing in SX_Allocation_Build", missing_consol],
         ["Rows matched in Timesheet SX", matched_timesheet],
@@ -1061,7 +1119,6 @@ def build_sx_downstream_checkpoint_data(
         ["Rows missing in 3.Vốn hóa", missing_capital],
         ["Rows with missing MNV", missing_mnv_rows],
         ["Rows excluded by filter", skipped_rows],
-        ["Rows excluded by project whitelist", excluded_by_whitelist],
         ["Rows with exact-match mismatch", exact_match_mismatch],
     ])
     return summary, details
@@ -1092,6 +1149,7 @@ def write_sx_downstream_checkpoint_sheet(wb, summary_rows: list[list[Any]], deta
             "Employee",
             "Position",
             "MNV lookup",
+            "Project code",
             "Project",
             "Issue",
             "Recommended action",
@@ -1116,14 +1174,15 @@ def write_sx_downstream_checkpoint_sheet(wb, summary_rows: list[list[Any]], deta
         "I": 24,
         "J": 16,
         "K": 14,
-        "L": 30,
-        "M": 26,
-        "N": 40,
-        "O": 10,
-        "P": 32,
-        "Q": 24,
+        "L": 18,
+        "M": 30,
+        "N": 26,
+        "O": 40,
+        "P": 10,
+        "Q": 32,
         "R": 24,
-        "S": 10,
+        "S": 24,
+        "T": 10,
     }.items():
         ws.column_dimensions[col].width = width
 
@@ -1169,7 +1228,9 @@ def read_sx_downstream_approvals(path: Path) -> list[dict[str, Any]]:
                 "employee": ws.cell(r, headers.get("Employee", 0)).value if headers.get("Employee") else None,
                 "position": ws.cell(r, headers.get("Position", 0)).value if headers.get("Position") else None,
                 "mnv_lookup": ws.cell(r, headers.get("MNV lookup", 0)).value if headers.get("MNV lookup") else None,
+                "project_code": ws.cell(r, headers.get("Project code", 0)).value if headers.get("Project code") else None,
                 "project": ws.cell(r, headers["Project"]).value,
+                "project_name": ws.cell(r, headers["Project"]).value,
                 "issue": ws.cell(r, headers["Issue"]).value,
                 "recommended_action": ws.cell(r, headers["Recommended action"]).value,
                 "apply": ws.cell(r, headers["Apply?"]).value,
@@ -1215,19 +1276,32 @@ def apply_sx_downstream_approvals(wb, approval_file: Path | None) -> None:
     for approval in approvals:
         is_yes = approval_value_is_yes(approval.get("apply"))
         issue = str(approval.get("issue") or "")
+        recommended_action = str(approval.get("recommended_action") or "")
         stage = str(approval.get("stage") or "")
         status = "skipped: Apply? not yes"
         resolved = "NO"
         resolution_note = None
         if is_yes:
-            if "missing month" in norm(issue) and stage in {"4.1 Chi phí nhân sự SX", SHEET_CAPITALIZATION, "Timesheet SX"}:
-                status = "applied: downstream month block retained for regenerated workbook"
-                resolved = "YES"
-                resolution_note = "Month block already present in regenerated workbook or manually updated in approval workbook"
+            actions = [clean(action) for action in recommended_action.split(";") if clean(action)]
+            action_statuses: list[str] = []
+            for action in actions:
+                try:
+                    if action == "ADD_TO_PROJECT_CATALOG":
+                        action_statuses.append(apply_add_to_project_catalog(wb[SHEET_PROJECT_CATALOG], approval))
+                    elif action == "ADD_TO_CAPITALIZATION":
+                        action_statuses.append(apply_add_to_capitalization(wb[SHEET_CAPITALIZATION], approval))
+                    elif "missing month" in norm(issue) and stage in {"4.1 Chi phí nhân sự SX", SHEET_CAPITALIZATION, "Timesheet SX"}:
+                        action_statuses.append("applied: downstream month block retained for regenerated workbook")
+                    else:
+                        action_statuses.append(f"skipped: unsupported action {action}")
+                except Exception as exc:
+                    action_statuses.append(f"failed {action}: {exc}")
+            if action_statuses:
+                status = "; ".join(action_statuses)
             else:
                 status = "applied: downstream issue reviewed"
-                resolved = "YES"
-                resolution_note = "Issue recorded for manual review"
+            resolved = "YES"
+            resolution_note = "Issue processed from approval file"
 
         results.append(
             [
@@ -2628,7 +2702,7 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
         [1, str(output_path), "", "Mở workbook này và kiểm tra các sheet Check_Payroll, checkpoint data SX, Check_SX_Downstream và Check_Vonhoa_Month_Block. Khi rerun bằng --approval-file, các sheet approval/checkpoint do người dùng chỉnh sẽ được carry forward; các sheet nguồn và sheet kết quả vẫn được rebuild từ input mới."],
         [2, str(output_path), "YES / Y / TRUE / 1 / APPLY / APPROVED", "Nhập một trong các giá trị này vào cột Apply? cho những dòng bạn muốn duyệt. Để trống hoặc nhập NO nếu không duyệt."],
         [3, str(output_path), "checkpoint data SX", "Hành động SX source: kiểm tra một sheet duy nhất gồm Summary / Details. Các dòng thiếu MNV sẽ nằm ngay trong Details với Issue = missing MNV; cập nhật sheet Mã nhân viên nếu cần, ghi chú ở cột Approval notes nếu cần, rồi đặt Apply? cho các dòng muốn mang qua file mới."],
-        [4, str(output_path), "Check_SX_Downstream", "Hành động SX downstream: kiểm tra Summary / Details để soi dữ liệu rơi ở SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa. Chỉ các project có tên nằm trong 3.Vốn hóa mới được tính downstream; các project khác sẽ bị loại theo whitelist. Nếu cần chỉnh thì sửa workbook theo cột Recommended action rồi đặt Apply? cho các dòng muốn duyệt."],
+        [4, str(output_path), "Check_SX_Downstream", "Hành động SX downstream: kiểm tra Summary / Details để soi dữ liệu rơi ở SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa. Nếu project chưa có trong 1.Danh mục dự án hoặc 3.Vốn hóa thì review theo Recommended action và đặt Apply? để cho phép tạo project mới / thêm vào vốn hóa khi cần."],
         [5, str(output_path), f"py -3 automate_kpi.py --approval-file \"{output_path}\"", "Sau khi đánh dấu các dòng cần duyệt trong workbook này, chạy lệnh này và trỏ --approval-file về đúng workbook đã chỉnh. Workbook này sẽ là base để carry forward phần approval/checkpoint."],
         [6, str(approval_file) if approval_file else "(none)", "", "Nếu lần chạy này có dùng approval file, đường dẫn sẽ hiện ở đây. Muốn đổi ý thì sửa file đó hoặc chạy lại không kèm --approval-file. Không dùng output cũ ngẫu nhiên làm nguồn carry forward nữa."],
         [7, str(output_path), "py -3 automate_kpi.py", "Chạy lại không có --approval-file để bỏ qua toàn bộ phê duyệt và tạo workbook mới từ template / nguồn dữ liệu. Đây là chế độ rebuild sạch, không carry forward state approved."],
@@ -2737,7 +2811,7 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
             "SX downstream / duyệt downstream",
             "Check_SX_Downstream",
             "Giải quyết lỗi xuống dòng và duyệt theo từng dòng",
-            "Sửa các điểm rơi ở SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa theo Recommended action. Chỉ những project có mặt trong 3.Vốn hóa mới được tính downstream; project ngoài whitelist sẽ bị loại.",
+            "Sửa các điểm rơi ở SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa theo Recommended action. Nếu project chưa có trong danh mục hoặc vốn hóa thì review và approve để tạo project mới hoặc bổ sung vào vốn hóa.",
             "SX_Downstream_Approval_Result",
         ],
         [
@@ -3023,6 +3097,12 @@ def parse_int_list(value: Any) -> list[int]:
     return [int(item) for item in re.findall(r"\d+", str(value))]
 
 
+def column_letters_to_number(value: str) -> int:
+    from openpyxl.utils.cell import column_index_from_string
+
+    return column_index_from_string(value)
+
+
 def column_from_it_sumifs(value: Any) -> int | None:
     if not isinstance(value, str) or not value.startswith("="):
         return None
@@ -3188,6 +3268,7 @@ def build_media_checkpoint_data(
     data_ws = find_sheet(wb, SHEET_MEDIA)
     ts_ws = find_sheet(wb, SHEET_TIMESHEET_MEDIA)
     fulltime_ws = find_sheet(wb, SHEET_SALARY_FULLTIME)
+    parttime_ws = find_sheet(wb, SHEET_SALARY_PARTTIME)
     if data_ws is None or ts_ws is None or fulltime_ws is None:
         summary_rows = [[month, 0, 0, 0] for month in range(1, 13)]
         placeholder = [[None] * 15]
@@ -3203,6 +3284,15 @@ def build_media_checkpoint_data(
         if month is None or not employee_code:
             continue
         salary_lookup[(month, norm(employee_code))] = standard_hours
+
+    if parttime_ws is not None:
+        for r in range(3, (parttime_ws.max_row or 0) + 1):
+            month = month_number(parttime_ws.cell(r, 1).value)
+            employee_code = clean(parttime_ws.cell(r, 3).value)
+            standard_hours = parse_hours(parttime_ws.cell(r, 27).value)
+            if month is None or not employee_code or not standard_hours:
+                continue
+            salary_lookup.setdefault((month, norm(employee_code)), standard_hours)
 
     ts_exact_map: dict[tuple[str, str, str, str], list[int]] = defaultdict(list)
     ts_clean_map: dict[tuple[str, str, str, str], list[int]] = defaultdict(list)
@@ -3573,6 +3663,66 @@ def source_entries_for_project(ts, project: Any) -> dict[int, dict[str, Any]]:
             item["rows"].append(r)
             item["total"] += value
     return entries
+
+
+def _project_code_number(value: Any) -> int | None:
+    code = clean(value)
+    if not code:
+        return None
+    compact = re.sub(r"\s+", "", str(code)).upper()
+    match = re.fullmatch(r"IT0*(\d+)", compact)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except Exception:
+        return None
+
+
+def next_it_project_code_number(wb) -> int:
+    max_code = 0
+    for sheet_name, col in [
+        (SHEET_PROJECT_CATALOG, 2),
+        (SHEET_CAPITALIZATION, 2),
+        (SHEET_IT_COST, 1),
+    ]:
+        ws = find_sheet(wb, sheet_name)
+        if ws is None:
+            continue
+        for r in range(2, ws.max_row + 1):
+            num = _project_code_number(ws.cell(r, col).value)
+            if num is not None:
+                max_code = max(max_code, num)
+    return max_code + 1 if max_code else 2601
+
+
+def collect_timesheet_it_projects_missing_from_catalog(ts, catalog_projects: set[str]) -> dict[str, dict[str, Any]]:
+    projects: dict[str, dict[str, Any]] = {}
+    for r in range(IT_HEADER_ROW + 2, ts.max_row + 1):
+        project_name = clean(ts.cell(r, 2).value)
+        project_clean = norm(project_name)
+        if not project_clean or project_clean in catalog_projects:
+            continue
+
+        item = projects.setdefault(
+            project_clean,
+            {
+                "project_name": project_name,
+                "system": clean(ts.cell(r, 3).value),
+                "bu": clean(ts.cell(r, 4).value),
+                "ts_rows": [],
+                "months": set(),
+            },
+        )
+        if item.get("system") is None:
+            item["system"] = clean(ts.cell(r, 3).value)
+        if item.get("bu") is None:
+            item["bu"] = clean(ts.cell(r, 4).value)
+        month = month_number(ts.cell(r, 5).value)
+        if month is not None:
+            item["months"].add(month)
+        item["ts_rows"].append(r)
+    return projects
 
 
 def project_master_to_catalog_approval(approval: dict[str, Any]) -> dict[str, Any]:
@@ -4100,10 +4250,11 @@ def build_it_cpns_checkpoint_data(wb) -> tuple[list[list[Any]], list[list[Any]]]
         cost_formula = f"=SUM({get_column_letter(cost_col)}3:{get_column_letter(cost_col)}{cost.max_row})" if cost_col else "=0"
         summary_rows.append([month, ts_formula, cost_formula, f"=C{month + 2}-B{month + 2}"])
 
-    detail_rows: list[list[Any]] = []
+    project_issue_rows: dict[str, dict[str, Any]] = {}
     for r in range(3, cost.max_row + 1):
         project_code = clean(cost.cell(r, 1).value)
-        project_name = clean(cost.cell(r, 2).value)
+        raw_project_name = cost.cell(r, 2).value
+        project_name = clean(raw_project_name)
         system = clean(cost.cell(r, 3).value)
         bu = clean(cost.cell(r, 6).value)
         employee_code = clean(cost.cell(r, 7).value)
@@ -4114,33 +4265,54 @@ def build_it_cpns_checkpoint_data(wb) -> tuple[list[list[Any]], list[list[Any]]]
             continue
 
         project_clean = norm(project_name)
-        catalog_exists = project_clean in catalog_projects
-        project_mismatch = project_name != clean(project_name)
-        issue = None
-        recommended_action = None
-        if not catalog_exists:
-            issue = "new project master required"
-            recommended_action = "ADD_PROJECT_MASTER_FIRST"
-        elif project_mismatch:
-            issue = "criteria text mismatch, likely whitespace"
-            recommended_action = "CLEAN_COST_PROJECT_TEXT"
+        project_mismatch = isinstance(raw_project_name, str) and clean(raw_project_name) != raw_project_name
+        issue_parts: list[str] = []
+        recommended_actions: list[str] = []
+        if project_mismatch:
+            issue_parts.append("criteria text mismatch, likely whitespace")
+            recommended_actions.append("CLEAN_COST_PROJECT_TEXT")
 
-        if issue is None:
+        if not issue_parts:
             continue
 
-        month_found = None
+        record = project_issue_rows.setdefault(
+            project_clean,
+            {
+                "project_code": project_code,
+                "project_name": project_name,
+                "system": system,
+                "bu": bu,
+                "employees": [],
+                "employee_cols": [],
+                "ts_rows": [],
+                "input_formulas": [],
+                "processed_formulas": [],
+                "cost_rows": [],
+                "positions": [],
+                "month_found": None,
+                "issue_parts": [],
+                "recommended_actions": [],
+                "matched_after_clean": True,
+                "cost_project_sample": cost_project_sample,
+            },
+        )
+        record["cost_rows"].append(r)
+        if employee:
+            record["employees"].append(employee)
+        if position:
+            record["positions"].append(position)
+        if employee_code:
+            employee_col_found = ts_employee_cols.get(norm(employee)) if employee else None
+        else:
+            employee_col_found = None
         ts_row_found = None
-        employee_col_found = None
         input_formula = None
         processed_formula = None
-
-        if employee:
-            employee_col_found = ts_employee_cols.get(norm(employee))
+        month_found = None
         if employee_col_found is not None:
             for month, cost_col in cost_month_cols.items():
-                # Prefer rows with an actual timesheet month row matching the project.
                 for ts_row in ts_month_rows.get(month, []):
-                    if norm(ts.cell(ts_row, 2).value) == norm(project_name):
+                    if norm(ts.cell(ts_row, 2).value) == project_clean:
                         month_found = month
                         ts_row_found = ts_row
                         input_formula = f"='Timesheet IT'!{get_column_letter(employee_col_found)}{ts_row_found}"
@@ -4148,7 +4320,6 @@ def build_it_cpns_checkpoint_data(wb) -> tuple[list[list[Any]], list[list[Any]]]
                         break
                 if month_found is not None:
                     break
-
         if month_found is None:
             month_found = month_number(cost.cell(1, 14).value) or 1
         if input_formula is None and employee_col_found is not None and ts_month_rows.get(month_found):
@@ -4156,22 +4327,38 @@ def build_it_cpns_checkpoint_data(wb) -> tuple[list[list[Any]], list[list[Any]]]
             input_formula = f"='Timesheet IT'!{get_column_letter(employee_col_found)}{ts_row_found}"
         if processed_formula is None and cost_month_cols.get(month_found):
             processed_formula = f"='Chi phí nhân sự IT'!{get_column_letter(cost_month_cols[month_found])}{r}"
+        if employee_col_found is not None:
+            record["employee_cols"].append(get_column_letter(employee_col_found))
+        if ts_row_found is not None:
+            record["ts_rows"].append(ts_row_found)
+        if input_formula is not None:
+            record["input_formulas"].append(input_formula)
+        if processed_formula is not None:
+            record["processed_formulas"].append(processed_formula)
+        record["issue_parts"].extend(issue_parts)
+        record["recommended_actions"].extend(recommended_actions)
+        record["month_found"] = month_found if record["month_found"] is None else record["month_found"]
+        record["matched_after_clean"] = record["matched_after_clean"] and not project_mismatch
 
+    detail_rows: list[list[Any]] = []
+    for record in project_issue_rows.values():
+        issue_text = "; ".join(dict.fromkeys(record["issue_parts"]))
+        recommended_text = "; ".join(dict.fromkeys(record["recommended_actions"]))
         detail_rows.append(
             [
-                month_found,
-                project_name,
-                employee,
-                get_column_letter(employee_col_found) if employee_col_found else None,
-                ts_row_found,
-                input_formula,
-                processed_formula,
+                record["month_found"],
+                record["project_name"],
+                ", ".join(dict.fromkeys(record["employees"])) or None,
+                ", ".join(dict.fromkeys(record["employee_cols"])) or None,
+                ", ".join(str(x) for x in dict.fromkeys(record["ts_rows"])) or None,
+                record["input_formulas"][0] if record["input_formulas"] else None,
+                record["processed_formulas"][0] if record["processed_formulas"] else None,
                 f"=F{len(detail_rows)+19}-G{len(detail_rows)+19}",
-                ", ".join(str(x) for x in [r]) if r else None,
-                cost_project_sample,
-                not project_mismatch,
-                issue,
-                recommended_action,
+                ", ".join(str(x) for x in dict.fromkeys(record["cost_rows"])) or None,
+                record["cost_project_sample"],
+                record["matched_after_clean"],
+                issue_text,
+                recommended_text,
                 "YES",
                 None,
             ]
@@ -4182,6 +4369,152 @@ def build_it_cpns_checkpoint_data(wb) -> tuple[list[list[Any]], list[list[Any]]]
         detail_rows.append([None, None, None, None, None, None, None, None, None, None, None, None, None, "NO", None])
 
     return summary_rows, detail_rows
+
+
+def build_it_new_project_master_data(wb) -> tuple[list[list[Any]], list[list[Any]]]:
+    ts = find_sheet(wb, SHEET_IT)
+    cost = find_sheet(wb, SHEET_IT_COST)
+    catalog = find_sheet(wb, SHEET_PROJECT_CATALOG)
+    if ts is None or cost is None or catalog is None:
+        return (
+            [["Projects requiring new project master", 0]],
+            [[None, None, None, None, None, None, None, None, None, None, None]],
+        )
+
+    catalog_projects = {norm(clean(catalog.cell(r, 3).value)) for r in range(2, catalog.max_row + 1) if clean(catalog.cell(r, 3).value)}
+    timesheet_projects = collect_timesheet_it_projects_missing_from_catalog(ts, catalog_projects)
+    project_rows: dict[str, dict[str, Any]] = {}
+
+    for r in range(3, cost.max_row + 1):
+        project_code = clean(cost.cell(r, 1).value)
+        project_name = clean(cost.cell(r, 2).value)
+        system = clean(cost.cell(r, 3).value)
+        bu = clean(cost.cell(r, 6).value)
+        if not project_name:
+            continue
+
+        project_clean = norm(project_name)
+        if project_clean in catalog_projects:
+            continue
+
+        item = project_rows.setdefault(
+            project_clean,
+            {
+                "project_code": project_code,
+                "project_name": project_name,
+                "system": system,
+                "bu": bu,
+                "cost_rows": [],
+                "ts_rows": [],
+                "months": set(),
+            },
+        )
+        item["cost_rows"].append(r)
+
+        ts_matches = source_entries_for_project(ts, project_name)
+        for source in ts_matches.values():
+            item["ts_rows"].extend(source["rows"])
+            item["months"].update(source["months"])
+
+    for project_clean, item in timesheet_projects.items():
+        record = project_rows.setdefault(
+            project_clean,
+            {
+                "project_code": None,
+                "project_name": item.get("project_name"),
+                "system": item.get("system"),
+                "bu": item.get("bu"),
+                "cost_rows": [],
+                "ts_rows": [],
+                "months": set(),
+            },
+        )
+        if not record.get("project_name"):
+            record["project_name"] = item.get("project_name")
+        if not record.get("system"):
+            record["system"] = item.get("system")
+        if not record.get("bu"):
+            record["bu"] = item.get("bu")
+        record["ts_rows"].extend(item.get("ts_rows", []))
+        record["months"].update(item.get("months", set()))
+
+    next_code_num = next_it_project_code_number(wb)
+    for record in project_rows.values():
+        if not record.get("project_code"):
+            record["project_code"] = f"IT{next_code_num:04d}"
+            next_code_num += 1
+
+    summary_rows = [["Projects requiring new project master", len(project_rows)]]
+    detail_rows: list[list[Any]] = []
+    for record in project_rows.values():
+        months = sorted(record["months"])
+        start_month = months[0] if months else None
+        end_month = months[-1] if months else None
+        detail_rows.append(
+            [
+                record["project_name"],
+                record["project_code"],
+                record["bu"],
+                record["system"],
+                start_month,
+                end_month,
+                ", ".join(str(r) for r in dict.fromkeys(record["ts_rows"])) or None,
+                ", ".join(str(r) for r in dict.fromkeys(record["cost_rows"])) or None,
+                "ADD_PROJECT_MASTER_FIRST",
+                "NO",
+                None,
+            ]
+        )
+
+    if not detail_rows:
+        detail_rows.append([None, None, None, None, None, None, None, None, None, "NO", None])
+
+    return summary_rows, detail_rows
+
+
+def write_it_new_project_master_sheet(wb, summary_rows: list[list[Any]], detail_rows: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, "IT_New_Project_Master")
+    next_row = append_table(
+        ws,
+        1,
+        "Summary",
+        ["Metric", "Count"],
+        summary_rows,
+    )
+    append_table(
+        ws,
+        next_row + 1,
+        "New Project Master Required",
+        [
+            "Project name",
+            "Suggested project code",
+            "Suggested BU",
+            "System",
+            "Start month",
+            "End month",
+            "Timesheet rows",
+            "Cost rows",
+            "Recommended action",
+            "Apply?",
+            "Approval notes",
+        ],
+        detail_rows,
+    )
+    ws.freeze_panes = "A5"
+    for col, width in {
+        "A": 48,
+        "B": 18,
+        "C": 16,
+        "D": 18,
+        "E": 12,
+        "F": 12,
+        "G": 20,
+        "H": 18,
+        "I": 28,
+        "J": 10,
+        "K": 18,
+    }.items():
+        ws.column_dimensions[col].width = width
 
 
 def write_it_cpns_checkpoint_sheet(wb, summary_rows: list[list[Any]], detail_rows: list[list[Any]]) -> None:
@@ -4477,13 +4810,17 @@ def run(
         output_path,
         [
             "Check_IT_CPNS",
-            "IT_New_Project_Master",
             "Check_IT_Downstream",
             "Check_Media_Timesheet",
         ],
     )
     if restored_it_checkpoints:
         print(f"  restored missing checkpoint sheets from latest output: {', '.join(restored_it_checkpoints)}")
+
+    if "IT_New_Project_Master" not in wb.sheetnames and SHEET_IT in wb.sheetnames and SHEET_IT_COST in wb.sheetnames and SHEET_PROJECT_CATALOG in wb.sheetnames:
+        it_new_summary, it_new_details = build_it_new_project_master_data(wb)
+        write_it_new_project_master_sheet(wb, it_new_summary, it_new_details)
+        print("  rebuilt checkpoint sheet: IT_New_Project_Master")
 
     if SHEET_MEDIA in wb.sheetnames and SHEET_TIMESHEET_MEDIA in wb.sheetnames and SHEET_SALARY_FULLTIME in wb.sheetnames:
         media_summary, media_details, media_source_issues, media_over100 = build_media_checkpoint_data(wb)

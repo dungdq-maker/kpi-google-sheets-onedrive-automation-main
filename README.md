@@ -11,6 +11,16 @@ Pipeline hiện tại bao gồm 3 luồng chính:
 
 Kết quả cuối cùng được ghi vào `data/output/final`.
 
+## Current Flow Notes
+
+- `IT` được tách rõ 3 lớp:
+  - `IT_New_Project_Master`: project mới / mapping mới cần approve
+  - `Check_IT_CPNS`: chỉ kiểm tra chênh lệch giữa `Timesheet IT` và `Chi phí nhân sự IT`
+  - `Check_IT_Downstream`: kiểm tra đường đi sang `1.Danh mục dự án` và `3.Vốn hóa`
+- `Media` giữ checkpoint riêng tại `Check_Media_Timesheet`
+- `SX` đi theo chuỗi:
+  - `Data SX ACCA+CMA -> SX_Allocation_Build -> Timesheet SX -> 4.1 Chi phí nhân sự SX -> 3.Vốn hóa`
+
 ## Current Scope
 
 Phiên bản hiện tại xử lý:
@@ -58,7 +68,13 @@ Nguồn IT được xử lý như matrix và đổ vào:
 Timesheet IT
 ```
 
-Pipeline IT vẫn giữ cơ chế approval/carry-forward cho các sheet liên quan đến mapping và downstream.
+Pipeline IT giữ cơ chế approval/carry-forward cho các sheet liên quan đến mapping và downstream.
+
+Các checkpoint IT chính:
+
+- `IT_New_Project_Master`: project mới chưa có trong catalog / vốn hóa
+- `Check_IT_CPNS`: chênh lệch giữa Timesheet IT và Chi phí nhân sự IT
+- `Check_IT_Downstream`: project đã vào cost nhưng cần đi tiếp sang `1.Danh mục dự án` / `3.Vốn hóa`
 
 ### Media
 
@@ -113,8 +129,8 @@ Các sheet approval/checkpoint chính:
 - `checkpoint data SX`
 - `Check_SX_Downstream`
 - `Check_Vonhoa_Month_Block`
-- `Check_IT_CPNS`
 - `IT_New_Project_Master`
+- `Check_IT_CPNS`
 - `Check_IT_Downstream`
 - `Check_Media_Timesheet`
 
