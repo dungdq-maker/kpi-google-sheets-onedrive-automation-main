@@ -182,6 +182,18 @@ The file is written to:
 docs/thuyet_trinh_bod_manager.pdf
 ```
 
+To generate the browser presentation deck for screen sharing, run:
+
+```powershell
+py -3 generate_bod_presentation_html.py
+```
+
+The file is written to:
+
+```text
+docs/thuyet_trinh_bod_manager.html
+```
+
 Nếu `python` không có sẵn trên PowerShell, dùng:
 
 ```powershell

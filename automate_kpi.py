@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.formula.translate import Translator
+from openpyxl.styles import Color
 from openpyxl.utils import get_column_letter
 
 import merge_SX as sx_merge
@@ -67,6 +68,13 @@ SHEET_SX_ALLOCATION = "SX_Allocation_Build"
 SHEET_SX_CHECKPOINT = "checkpoint data SX"
 SHEET_SX_DOWNSTREAM_CHECKPOINT = "Check_SX_Downstream"
 SHEET_SX_DOWNSTREAM_RESULT = "SX_Downstream_Approval_Result"
+
+SHEET_GROUP_COLORS = {
+    "IT": "FF1D4ED8",
+    "MEDIA": "FF0F766E",
+    "SX": "FFEA580C",
+    "COMMON": "FF64748B",
+}
 
 PAYROLL_SOURCE_PATH = Path(r"C:\Users\admin\OneDrive\BCQT 2026\Vốn hóa chi phí nhân sự 2026.xlsx")
 PAYROLL_SHEETS = [SHEET_SALARY_FULLTIME, SHEET_SALARY_PARTTIME]
@@ -1410,6 +1418,10 @@ def parse_hours(value: Any) -> float | None:
     return None
 
 
+def numeric(value: Any) -> float | None:
+    return parse_hours(value)
+
+
 def build_employee_lookup(template_wb) -> dict[str, str]:
     if SHEET_EMPLOYEE not in template_wb.sheetnames:
         return {}
@@ -1884,6 +1896,102 @@ def remove_worksheet_if_exists(wb, sheet_name: str) -> bool:
     return True
 
 
+def set_sheet_tab_color(ws, color_argb: str | None) -> None:
+    if color_argb is None:
+        return
+    try:
+        ws.sheet_properties.tabColor = Color(rgb=color_argb)
+    except Exception:
+        pass
+
+
+def arrange_workbook_sections(wb) -> None:
+    section_orders = {
+        "COMMON": [
+            "Hướng dẫn",
+            "1.Danh mục dự án",
+            "2.Nhân sự thực hiện",
+            "3.Vốn hóa",
+            "Lương nhân viên full time",
+            "Lương nhân viên part time",
+            "Mã nhân viên",
+            "Check mã nhân viên",
+            "Check_Payroll",
+            "Huong_dan_Approval",
+        ],
+        "IT": [
+            "Timesheet IT",
+            "Chi phí nhân sự IT",
+            "Sổ kế toán SC",
+            "242",
+            "242 T8-9",
+            "Bút toán điều chỉnh",
+            "Checking Vốn hóa IT",
+            "IT_Approval_Result",
+            "Check_IT_CPNS",
+            "IT_New_Project_Master",
+            "Check_IT_Downstream",
+        ],
+        "MEDIA": [
+            "Timesheet Media",
+            "Data media ACCA+CFA+CMA",
+            "Media_CFA",
+            "Media_CMA",
+            "Media_ACCA",
+            "Check_Media_Timesheet",
+        ],
+        "SX": [
+            "Data SX ACCA+CMA",
+            "Data SX CFA",
+            "Data SX+Media SC",
+            "SX_Allocation_Build",
+            "Timesheet SX",
+            "4.1 Chi phí nhân sự SX",
+            "checkpoint data SX",
+            "SX_Approval_Result",
+            "Check_SX_Downstream",
+            "SX_Downstream_Approval_Result",
+            "Check_Vonhoa_Month_Block",
+            "Vonhoa_Block_Approval_Result",
+        ],
+    }
+
+    group_colors = {
+        "COMMON": SHEET_GROUP_COLORS["COMMON"],
+        "IT": SHEET_GROUP_COLORS["IT"],
+        "MEDIA": SHEET_GROUP_COLORS["MEDIA"],
+        "SX": SHEET_GROUP_COLORS["SX"],
+    }
+
+    ordered_names: list[str] = []
+    seen: set[str] = set()
+    for group in ["COMMON", "IT", "MEDIA", "SX"]:
+        for sheet_name in section_orders[group]:
+            if sheet_name in wb.sheetnames and sheet_name not in seen:
+                ordered_names.append(sheet_name)
+                seen.add(sheet_name)
+
+    for sheet_name in wb.sheetnames:
+        if sheet_name not in seen:
+            ordered_names.append(sheet_name)
+            seen.add(sheet_name)
+
+    wb._sheets = [wb[sheet_name] for sheet_name in ordered_names]
+
+    for sheet_name in section_orders["COMMON"]:
+        if sheet_name in wb.sheetnames:
+            set_sheet_tab_color(wb[sheet_name], group_colors["COMMON"])
+    for sheet_name in section_orders["IT"]:
+        if sheet_name in wb.sheetnames:
+            set_sheet_tab_color(wb[sheet_name], group_colors["IT"])
+    for sheet_name in section_orders["MEDIA"]:
+        if sheet_name in wb.sheetnames:
+            set_sheet_tab_color(wb[sheet_name], group_colors["MEDIA"])
+    for sheet_name in section_orders["SX"]:
+        if sheet_name in wb.sheetnames:
+            set_sheet_tab_color(wb[sheet_name], group_colors["SX"])
+
+
 def sanitize_sx_raw_formulas(wb) -> int:
     raw_ws = find_sheet(wb, SHEET_SX_TARGET)
     if raw_ws is None:
@@ -2353,6 +2461,44 @@ def restore_carry_forward_sheets_from_approval_file(wb, approval_file: Path | No
             target_ws.freeze_panes = "A18"
 
 
+def restore_missing_checkpoint_sheets_from_latest_output(
+    wb,
+    output_path: Path,
+    sheet_names: list[str],
+) -> list[str]:
+    restored: list[str] = []
+    missing_names = [name for name in sheet_names if name not in wb.sheetnames]
+    if not missing_names:
+        return restored
+
+    final_dir = DIRS["final"]
+    candidate_paths = [
+        path
+        for path in sorted(final_dir.glob("von_hoa_*.xlsx"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if path.resolve() != output_path.resolve()
+    ]
+
+    for source_path in candidate_paths:
+        try:
+            source_wb = load_workbook(source_path, data_only=False)
+        except Exception:
+            continue
+        for sheet_name in list(missing_names):
+            if sheet_name not in source_wb.sheetnames:
+                continue
+            source_ws = source_wb[sheet_name]
+            target_ws = wb.create_sheet(title=sheet_name)
+            copy_sheet_content(source_ws, target_ws)
+            if sheet_name == "Check_IT_CPNS":
+                target_ws.freeze_panes = "A18"
+            restored.append(sheet_name)
+            missing_names.remove(sheet_name)
+        if not missing_names:
+            break
+
+    return restored
+
+
 def find_payroll_header_row(ws) -> int | None:
     for r in range(1, min(ws.max_row or 0, 20) + 1):
         values = {norm(ws.cell(r, c).value) for c in range(1, (ws.max_column or 0) + 1)}
@@ -2617,7 +2763,7 @@ def read_it_mapping_approvals(path: Path) -> list[dict[str, Any]]:
     wb = load_workbook(path, data_only=False)
     ws = find_sheet(wb, "Check_IT_CPNS")
     if ws is None:
-        raise SystemExit("Approval file does not contain sheet Check_IT_CPNS.")
+        return []
 
     header_row = find_section_header(ws, "Details")
     if header_row is None:
@@ -2750,6 +2896,8 @@ def read_project_master_approvals(path: Path) -> list[dict[str, Any]]:
     ws = find_sheet(wb, "IT_New_Project_Master")
     if ws is None:
         return []
+    if ws is None:
+        return []
 
     header_row = find_section_header(ws, "New Project Master Required")
     if header_row is None:
@@ -2872,6 +3020,22 @@ def parse_int_list(value: Any) -> list[int]:
     if value is None:
         return []
     return [int(item) for item in re.findall(r"\d+", str(value))]
+
+
+def column_from_it_sumifs(value: Any) -> int | None:
+    if not isinstance(value, str) or not value.startswith("="):
+        return None
+    match = re.search(r"'Timesheet IT'!\$([A-Z]+):\$\\1", value)
+    if not match:
+        match = re.search(r"'Timesheet IT'!\$([A-Z]+):\$[A-Z]+", value)
+    if not match:
+        return None
+    letters = match.group(1)
+    try:
+        from openpyxl.utils.cell import column_index_from_string
+        return column_index_from_string(letters)
+    except Exception:
+        return None
 
 
 def find_cost_row_by_project_and_sum_col(cost, project: Any, sum_col: int) -> int | None:
@@ -3146,6 +3310,23 @@ def project_master_to_catalog_approval(approval: dict[str, Any]) -> dict[str, An
     }
 
 
+def project_master_to_capitalization_approval(approval: dict[str, Any]) -> dict[str, Any]:
+    start_month = approval.get("start_month")
+    end_month = approval.get("end_month")
+    start_date = datetime(2026, int(start_month), 1) if start_month else None
+    end_date = datetime(2026, int(end_month), 1) if end_month else None
+    return {
+        "project_code": approval.get("project_code"),
+        "project_name": approval.get("project"),
+        "catalog_year": 2026,
+        "catalog_bu": "HO",
+        "catalog_classification": approval.get("bu") or None,
+        "catalog_start": start_date,
+        "catalog_end": end_date,
+        "catalog_capitalization": True,
+    }
+
+
 def apply_project_master_approval(wb, approval: dict[str, Any]) -> str:
     action = clean(approval.get("action"))
     if action != "ADD_PROJECT_MASTER_FIRST":
@@ -3154,7 +3335,8 @@ def apply_project_master_approval(wb, approval: dict[str, Any]) -> str:
     ts = find_sheet(wb, SHEET_IT)
     cost = find_sheet(wb, SHEET_IT_COST)
     catalog = find_sheet(wb, SHEET_PROJECT_CATALOG)
-    if ts is None or cost is None or catalog is None:
+    capitalization = find_sheet(wb, SHEET_CAPITALIZATION)
+    if ts is None or cost is None or catalog is None or capitalization is None:
         return "failed: missing Timesheet IT, Chi phí nhân sự IT, or 1.Danh mục dự án"
 
     project = clean(approval.get("project"))
@@ -3199,6 +3381,7 @@ def apply_project_master_approval(wb, approval: dict[str, Any]) -> str:
         statuses.append(f"added cost rows {', '.join(added_rows)}")
     if skipped_rows:
         statuses.append(f"updated existing cost rows {', '.join(skipped_rows)}")
+    statuses.append(apply_add_to_capitalization(capitalization, project_master_to_capitalization_approval(approval)))
     return "; ".join(statuses)
 
 
@@ -3248,6 +3431,10 @@ def find_row_by_clean_value(ws, col: int, value: Any, start_row: int = 1) -> int
         if clean(ws.cell(r, col).value) == target:
             return r
     return None
+
+
+def project_exists_in_column(ws, value: Any, col: int, start_row: int = 1) -> bool:
+    return find_row_by_clean_value(ws, col, value, start_row=start_row) is not None
 
 
 def carry_forward_project_master_results(wb, approval_file: Path | None) -> list[list[Any]]:
@@ -3440,6 +3627,400 @@ def apply_downstream_approvals(wb, approval_file: Path | None) -> None:
         write_downstream_approval_result_sheet(wb, results)
 
 
+def build_it_downstream_checkpoint_data(wb) -> tuple[list[list[Any]], list[list[Any]]]:
+    cost_ws = find_sheet(wb, SHEET_IT_COST)
+    catalog_ws = find_sheet(wb, SHEET_PROJECT_CATALOG)
+    capital_ws = find_sheet(wb, SHEET_CAPITALIZATION)
+    checking_ws = find_sheet(wb, SHEET_IT_CHECKING)
+    if cost_ws is None or catalog_ws is None or capital_ws is None or checking_ws is None:
+        return (
+            [
+                ["Projects in Chi phí nhân sự IT", 0],
+                ["Missing in 1.Danh mục dự án", 0],
+                ["Missing in 3.Vốn hóa", 0],
+                ["Projects with MNV missing in Checking Vốn hóa IT", 0],
+            ],
+            [
+                [
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "missing downstream sheet(s)",
+                    "Restore missing downstream sheet(s) in template",
+                    "NO",
+                    None,
+                ]
+            ],
+        )
+
+    checking_mnvs = {
+        clean(checking_ws.cell(r, 11).value)
+        for r in range(4, checking_ws.max_row + 1)
+        if clean(checking_ws.cell(r, 11).value)
+    }
+
+    projects: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in range(3, cost_ws.max_row + 1):
+        code = clean(cost_ws.cell(r, 1).value)
+        project = clean(cost_ws.cell(r, 2).value)
+        if not code or not project:
+            continue
+        key = (norm(code), norm(project))
+        item = projects.setdefault(
+            key,
+            {
+                "project_code": code,
+                "project_name": project,
+                "system": clean(cost_ws.cell(r, 3).value),
+                "bu": clean(cost_ws.cell(r, 6).value),
+                "cost_rows": [],
+                "mnvs": [],
+                "missing_mnvs": [],
+            },
+        )
+        item["cost_rows"].append(r)
+        mnv = clean(cost_ws.cell(r, 7).value)
+        if mnv:
+            item["mnvs"].append(mnv)
+            if mnv not in checking_mnvs:
+                item["missing_mnvs"].append(mnv)
+
+    summary: list[list[Any]] = []
+    detail_rows: list[list[Any]] = []
+    missing_catalog = 0
+    missing_capital = 0
+    missing_checking = 0
+
+    for project in projects.values():
+        code = clean(project["project_code"])
+        name = clean(project["project_name"])
+        catalog_row = find_row_by_clean_value(catalog_ws, 2, code, start_row=2)
+        capital_row = find_row_by_clean_value(capital_ws, 2, code, start_row=3)
+
+        catalog_exists = catalog_row is not None
+        capital_exists = capital_row is not None
+        if not catalog_exists:
+            missing_catalog += 1
+        if not capital_exists:
+            missing_capital += 1
+        if project["missing_mnvs"]:
+            missing_checking += 1
+
+        if catalog_row is not None:
+            catalog_year = catalog_ws.cell(catalog_row, 1).value
+            catalog_bu = catalog_ws.cell(catalog_row, 5).value
+            catalog_classification = catalog_ws.cell(catalog_row, 6).value
+            catalog_start = catalog_ws.cell(catalog_row, 7).value
+            catalog_end = catalog_ws.cell(catalog_row, 8).value
+            catalog_capitalization = catalog_ws.cell(catalog_row, 12).value
+        else:
+            catalog_year = 2026
+            catalog_bu = project["bu"]
+            catalog_classification = None
+            catalog_start = None
+            catalog_end = None
+            catalog_capitalization = None
+
+        issue_parts = []
+        recommended_action = []
+        if not catalog_exists:
+            issue_parts.append("missing in 1.Danh mục dự án")
+            recommended_action.append("ADD_TO_PROJECT_CATALOG")
+        if not capital_exists:
+            issue_parts.append("missing in 3.Vốn hóa")
+            recommended_action.append("ADD_TO_CAPITALIZATION")
+        if project["missing_mnvs"]:
+            issue_parts.append("missing Checking MNV")
+            recommended_action.append("ADD_MNV_TO_IT_CHECKING")
+
+        detail_rows.append(
+            [
+                code,
+                name,
+                project["system"],
+                project["bu"],
+                catalog_year,
+                catalog_bu,
+                catalog_classification,
+                catalog_start,
+                catalog_end,
+                catalog_capitalization,
+                ", ".join(str(r) for r in project["cost_rows"]),
+                ", ".join(sorted({str(m) for m in project["mnvs"]})),
+                catalog_exists,
+                capital_exists,
+                len(project["missing_mnvs"]),
+                ", ".join(project["missing_mnvs"]) if project["missing_mnvs"] else None,
+                "; ".join(issue_parts) if issue_parts else None,
+                "; ".join(recommended_action) if recommended_action else None,
+                "NO" if issue_parts else None,
+                None,
+            ]
+        )
+
+    summary.extend([
+        ["Projects in Chi phí nhân sự IT", len(projects)],
+        ["Missing in 1.Danh mục dự án", missing_catalog],
+        ["Missing in 3.Vốn hóa", missing_capital],
+        ["Projects with MNV missing in Checking Vốn hóa IT", missing_checking],
+    ])
+    return summary, detail_rows
+
+
+def build_it_cpns_checkpoint_data(wb) -> tuple[list[list[Any]], list[list[Any]]]:
+    ts = find_sheet(wb, SHEET_IT)
+    cost = find_sheet(wb, SHEET_IT_COST)
+    catalog = find_sheet(wb, SHEET_PROJECT_CATALOG)
+    if ts is None or cost is None or catalog is None:
+        return (
+            [[month, None, None, None] for month in range(1, 13)],
+            [[None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]],
+        )
+
+    catalog_projects = {norm(clean(catalog.cell(r, 3).value)) for r in range(2, catalog.max_row + 1) if clean(catalog.cell(r, 3).value)}
+
+    # Map month number -> cost month input column from row 1.
+    cost_month_cols: dict[int, int] = {}
+    for c in range(1, cost.max_column + 1):
+        v = cost.cell(1, c).value
+        if isinstance(v, int) and 1 <= v <= 12:
+            cost_month_cols[int(v)] = c
+
+    # Collect timesheet month rows and the corresponding employee columns from row 14.
+    ts_employee_cols: dict[str, int] = {}
+    for c in range(6, ts.max_column + 1):
+        employee_name = clean(ts.cell(14, c).value)
+        if employee_name:
+            ts_employee_cols[norm(employee_name)] = c
+
+    ts_month_rows: dict[int, list[int]] = {month: [] for month in range(1, 13)}
+    for r in range(15, ts.max_row + 1):
+        month = month_number(ts.cell(r, 5).value)
+        if month in ts_month_rows:
+            ts_month_rows[month].append(r)
+
+    summary_rows: list[list[Any]] = []
+    for month in range(1, 13):
+        ts_rows = ts_month_rows.get(month, [])
+        ts_ranges = [f"F{r}:Z{r}" for r in ts_rows]
+        ts_formula = f"=SUM({','.join(ts_ranges)})" if ts_ranges else "=0"
+        cost_col = cost_month_cols.get(month)
+        cost_formula = f"=SUM({get_column_letter(cost_col)}3:{get_column_letter(cost_col)}{cost.max_row})" if cost_col else "=0"
+        summary_rows.append([month, ts_formula, cost_formula, f"=C{month + 2}-B{month + 2}"])
+
+    detail_rows: list[list[Any]] = []
+    for r in range(3, cost.max_row + 1):
+        project_code = clean(cost.cell(r, 1).value)
+        project_name = clean(cost.cell(r, 2).value)
+        system = clean(cost.cell(r, 3).value)
+        bu = clean(cost.cell(r, 6).value)
+        employee_code = clean(cost.cell(r, 7).value)
+        employee = clean(cost.cell(r, 8).value)
+        position = clean(cost.cell(r, 9).value)
+        cost_project_sample = clean(cost.cell(r, 2).value)
+        if not project_name:
+            continue
+
+        project_clean = norm(project_name)
+        catalog_exists = project_clean in catalog_projects
+        project_mismatch = project_name != clean(project_name)
+        issue = None
+        recommended_action = None
+        if not catalog_exists:
+            issue = "new project master required"
+            recommended_action = "ADD_PROJECT_MASTER_FIRST"
+        elif project_mismatch:
+            issue = "criteria text mismatch, likely whitespace"
+            recommended_action = "CLEAN_COST_PROJECT_TEXT"
+
+        if issue is None:
+            continue
+
+        month_found = None
+        ts_row_found = None
+        employee_col_found = None
+        input_formula = None
+        processed_formula = None
+
+        if employee:
+            employee_col_found = ts_employee_cols.get(norm(employee))
+        if employee_col_found is not None:
+            for month, cost_col in cost_month_cols.items():
+                # Prefer rows with an actual timesheet month row matching the project.
+                for ts_row in ts_month_rows.get(month, []):
+                    if norm(ts.cell(ts_row, 2).value) == norm(project_name):
+                        month_found = month
+                        ts_row_found = ts_row
+                        input_formula = f"='Timesheet IT'!{get_column_letter(employee_col_found)}{ts_row_found}"
+                        processed_formula = f"='Chi phí nhân sự IT'!{get_column_letter(cost_col)}{r}"
+                        break
+                if month_found is not None:
+                    break
+
+        if month_found is None:
+            month_found = month_number(cost.cell(1, 14).value) or 1
+        if input_formula is None and employee_col_found is not None and ts_month_rows.get(month_found):
+            ts_row_found = ts_month_rows[month_found][0]
+            input_formula = f"='Timesheet IT'!{get_column_letter(employee_col_found)}{ts_row_found}"
+        if processed_formula is None and cost_month_cols.get(month_found):
+            processed_formula = f"='Chi phí nhân sự IT'!{get_column_letter(cost_month_cols[month_found])}{r}"
+
+        detail_rows.append(
+            [
+                month_found,
+                project_name,
+                employee,
+                get_column_letter(employee_col_found) if employee_col_found else None,
+                ts_row_found,
+                input_formula,
+                processed_formula,
+                f"=F{len(detail_rows)+19}-G{len(detail_rows)+19}",
+                ", ".join(str(x) for x in [r]) if r else None,
+                cost_project_sample,
+                not project_mismatch,
+                issue,
+                recommended_action,
+                "YES",
+                None,
+            ]
+        )
+
+    # If there are no issues, keep a single informative row so the sheet is not empty.
+    if not detail_rows:
+        detail_rows.append([None, None, None, None, None, None, None, None, None, None, None, None, None, "NO", None])
+
+    return summary_rows, detail_rows
+
+
+def write_it_cpns_checkpoint_sheet(wb, summary_rows: list[list[Any]], detail_rows: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, "Check_IT_CPNS")
+    next_row = append_table(
+        ws,
+        1,
+        "Summary",
+        ["Month", "Input Timesheet IT", "Processed Chi phí nhân sự IT", "Diff"],
+        summary_rows,
+    )
+    append_table(
+        ws,
+        next_row + 1,
+        "Details",
+        [
+            "Month",
+            "Project",
+            "Employee",
+            "Employee column",
+            "Timesheet rows",
+            "Input value",
+            "Processed value",
+            "Diff",
+            "Cost rows matched after clean",
+            "Cost project sample",
+            "Matched after clean",
+            "Issue",
+            "Recommended action",
+            "Apply?",
+            "Approval notes",
+        ],
+        detail_rows,
+    )
+    ws.freeze_panes = "A18"
+    for col, width in {
+        "A": 10,
+        "B": 48,
+        "C": 24,
+        "D": 16,
+        "E": 16,
+        "F": 16,
+        "G": 16,
+        "H": 16,
+        "I": 18,
+        "J": 50,
+        "K": 18,
+        "L": 28,
+        "M": 28,
+        "N": 12,
+        "O": 18,
+    }.items():
+        ws.column_dimensions[col].width = width
+
+
+def write_it_downstream_checkpoint_sheet(wb, summary_rows: list[list[Any]], detail_rows: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, "Check_IT_Downstream")
+    next_row = append_table(
+        ws,
+        1,
+        "Summary",
+        ["Metric", "Count"],
+        summary_rows,
+    )
+    append_table(
+        ws,
+        next_row + 1,
+        "Details",
+        [
+            "Project code",
+            "Project name",
+            "System",
+            "BU",
+            "Catalog year",
+            "Catalog BU",
+            "Catalog classification",
+            "Catalog start date",
+            "Catalog end date",
+            "Catalog capitalization flag",
+            "Chi phí nhân sự IT rows",
+            "MNVs in cost",
+            "Exists in 1.Danh mục dự án",
+            "Exists in 3.Vốn hóa",
+            "Missing Checking MNV count",
+            "Missing Checking MNVs",
+            "Issue",
+            "Recommended action",
+            "Apply?",
+            "Approval notes",
+        ],
+        detail_rows,
+    )
+    for col, width in {
+        "A": 16,
+        "B": 52,
+        "C": 22,
+        "D": 18,
+        "E": 14,
+        "F": 18,
+        "G": 22,
+        "H": 18,
+        "I": 18,
+        "J": 18,
+        "K": 24,
+        "L": 36,
+        "M": 22,
+        "N": 18,
+        "O": 22,
+        "P": 18,
+        "Q": 26,
+        "R": 28,
+        "S": 12,
+        "T": 18,
+    }.items():
+        ws.column_dimensions[col].width = width
+    ws.freeze_panes = "A9"
+
+
 def run(
     download: bool,
     open_after: bool = True,
@@ -3611,8 +4192,34 @@ def run(
     )
     write_sx_downstream_checkpoint_sheet(wb, sx_downstream_summary, sx_downstream_details)
     apply_sx_downstream_approvals(wb, approval_file)
+
+    restored_it_checkpoints = restore_missing_checkpoint_sheets_from_latest_output(
+        wb,
+        output_path,
+        [
+            "Check_IT_CPNS",
+            "IT_New_Project_Master",
+            "Check_IT_Downstream",
+            "Check_Media_Timesheet",
+        ],
+    )
+    if restored_it_checkpoints:
+        print(f"  restored missing checkpoint sheets from latest output: {', '.join(restored_it_checkpoints)}")
+
+    if SHEET_IT in wb.sheetnames and SHEET_IT_COST in wb.sheetnames and SHEET_PROJECT_CATALOG in wb.sheetnames:
+        it_cpns_summary, it_cpns_details = build_it_cpns_checkpoint_data(wb)
+        write_it_cpns_checkpoint_sheet(wb, it_cpns_summary, it_cpns_details)
+        print("  rebuilt checkpoint sheet: Check_IT_CPNS")
+
+    if SHEET_IT_COST in wb.sheetnames and SHEET_PROJECT_CATALOG in wb.sheetnames and SHEET_CAPITALIZATION in wb.sheetnames and SHEET_IT_CHECKING in wb.sheetnames:
+        it_downstream_summary, it_downstream_details = build_it_downstream_checkpoint_data(wb)
+        write_it_downstream_checkpoint_sheet(wb, it_downstream_summary, it_downstream_details)
+        print("  rebuilt checkpoint sheet: Check_IT_Downstream")
+
     write_approval_guide_sheet(wb, output_path, approval_file)
     print("  wrote checkpoint sheets: Check_Payroll, Check_IT_CPNS, IT_New_Project_Master, Check_IT_Downstream, Check_Media_Timesheet, checkpoint data SX, Check_SX_Downstream, Check_Vonhoa_Month_Block")
+
+    arrange_workbook_sections(wb)
 
     wb.save(output_path)
     patch_pivot_refresh_flags(output_path)
