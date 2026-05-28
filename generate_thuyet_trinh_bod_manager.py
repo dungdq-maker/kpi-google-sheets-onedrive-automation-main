@@ -211,7 +211,7 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
             [p("Trước automation dễ sai ở đâu?", styles["table"]), p("Ví dụ thực tế", styles["table"]), p("Checkpoint giúp gì?", styles["table"])],
             [p("Copy nhưng không để ý format", styles["table"]), p("Copy từ Google Sheet, Excel hoặc workbook cũ có thể kéo theo format, công thức, kiểu ngày tháng hoặc cột lệch.", styles["table"]), p("Đưa dữ liệu qua staging/check sheet để nhìn lại dòng, tháng, MNV, project và trạng thái trước khi ghi output.", styles["table"])],
             [p("Không phân biệt được dự án mới", styles["table"]), p("Project chưa có trong danh mục hoặc project master nhưng vẫn bị copy tiếp như dữ liệu bình thường.", styles["table"]), p("Đẩy vào IT_New_Project_Master, Check_IT_Downstream hoặc result tương ứng để người phụ trách duyệt.", styles["table"])],
-            [p("Không nhận ra nhân viên mới", styles["table"]), p("MNV mới, thiếu payroll mapping hoặc duplicate Month+MNV có thể làm output thiếu hoặc sai chi phí.", styles["table"]), p("Check_Payroll và checkpoint nghiệp vụ giúp phát hiện thiếu MNV, thiếu lương hoặc dữ liệu trùng.", styles["table"])],
+            [p("Không nhận ra nhân viên mới", styles["table"]), p("MNV mới hoặc nhân sự chưa map có thể làm output thiếu mã hoặc rơi vào nhóm chưa xác định.", styles["table"]), p("Checkpoint nghiệp vụ giúp phát hiện thiếu MNV, tên nhân sự lệch hoặc mapping chưa đủ.", styles["table"])],
             [p("Sửa thẳng output khi phát hiện lỗi", styles["table"]), p("Sửa trực tiếp trong file kết quả có thể nhanh trước mắt nhưng khó audit và dễ mất dấu nguyên nhân gốc.", styles["table"]), p("Approval/result sheet ghi nhận quyết định để truy ngược lại source, staging và người duyệt.", styles["table"])],
         ],
         [46 * mm, 68 * mm, 64 * mm],
@@ -262,8 +262,10 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
     append_asset(story, "timesheet_it.png", 178 * mm, "Nguồn trực tiếp: Timesheet IT từ workbook mới nhất.", styles)
     append_asset(story, "timesheet_media.png", 178 * mm, "Nguồn trực tiếp: Timesheet Media từ workbook mới nhất.", styles)
     append_asset(story, "data_media_sheet.png", 178 * mm, "Nguồn trực tiếp: Data media ACCA+CFA+CMA dùng để đối chiếu Media.", styles)
-    append_asset(story, "payroll_ft.png", 178 * mm, "Nguồn payroll: Lương nhân viên full time.", styles)
-    append_asset(story, "payroll_pt.png", 178 * mm, "Nguồn payroll: Lương nhân viên part time.", styles)
+    story.append(p("Với payroll, hệ thống không kiểm định C&B tính lương đúng hay sai. Số lương được xem là input đã được C&B chốt; automation chỉ sử dụng số đó để đưa vào luồng tính toán và kiểm soát xem dữ liệu đã được copy/đồng bộ đủ chưa.", styles["note"]))
+    append_asset(story, "sx_source_acca.png", 178 * mm, "Nguồn SX input: ACCA.xlsx - sheet 0426.", styles)
+    append_asset(story, "sx_source_cfa.png", 178 * mm, "Nguồn SX input: CFA.xlsx - sheet Apr 26.", styles)
+    append_asset(story, "sx_source_cma.png", 178 * mm, "Nguồn SX input: CMA.xlsx - employee sheet.", styles)
     append_asset(story, "approval_guide.png", 178 * mm, "Trong quy trình mới: có sheet hướng dẫn approval để người dùng biết phải duyệt ở đâu.", styles)
     append_asset(story, "it_approval_result.png", 178 * mm, "Sau khi áp dụng: IT_Approval_Result ghi nhận dữ liệu IT đã được xử lý.", styles)
     append_asset(story, "project_master_approval_result.png", 178 * mm, "Sau khi áp dụng: Project_Master_Approval_Result ghi nhận phần project master được duyệt.", styles)
@@ -335,8 +337,7 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
         [
             [p("Tình huống", styles["table"]), p("Sheet thường cần xem / chỉnh", styles["table"]), p("Lý do", styles["table"])],
             [p("Dự án mới", styles["table"]), p("1.Danh mục dự án, IT_New_Project_Master, Check_IT_Downstream, 3.Vốn hóa", styles["table"]), p("Project mới phải được map vào danh mục và đi qua downstream đúng.", styles["table"])],
-            [p("Nhân viên mới", styles["table"]), p("Mã nhân viên, Check_Payroll, Timesheet IT / Media / SX, checkpoint tương ứng", styles["table"]), p("Nếu thiếu MNV hoặc map sai thì output sẽ lệch ngay ở bước đầu.", styles["table"])],
-            [p("Lương mới", styles["table"]), p("Lương nhân viên full time, Lương nhân viên part time, Check_Payroll", styles["table"]), p("Đây là nguồn để đồng bộ payroll vào workbook output.", styles["table"])],
+            [p("Nhân viên mới", styles["table"]), p("Mã nhân viên, Timesheet IT / Media / SX, checkpoint tương ứng", styles["table"]), p("Nếu thiếu MNV hoặc map sai thì output sẽ lệch ngay ở bước đầu.", styles["table"])],
         ],
         [28 * mm, 96 * mm, 54 * mm],
         "#0F766E",

@@ -3,7 +3,8 @@ param(
     [string]$PayrollWorkbook,
     [string]$OutputDir = "docs\generated_assets",
     [int]$MaxRows = 28,
-    [int]$MaxCols = 12
+    [int]$MaxCols = 12,
+    [switch]$OnlySxInput
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,6 +38,18 @@ function Resolve-PayrollWorkbook {
     return ($candidates | Select-Object -First 1).FullName
 }
 
+function Item-ValueOrDefault {
+    param(
+        [hashtable]$Item,
+        [string]$Key,
+        [object]$Default
+    )
+    if ($Item.ContainsKey($Key)) {
+        return $Item[$Key]
+    }
+    return $Default
+}
+
 function Export-SheetPicture {
     param(
         [object]$Excel,
@@ -44,7 +57,9 @@ function Export-SheetPicture {
         [string]$SheetName,
         [string]$OutputPath,
         [int]$Rows,
-        [int]$Cols
+        [int]$Cols,
+        [int]$StartRow = 1,
+        [int]$StartCol = 1
     )
 
     if (-not (Test-Path -LiteralPath $WorkbookPath)) {
@@ -54,7 +69,8 @@ function Export-SheetPicture {
 
     $workbook = $null
     try {
-        $workbook = $Excel.Workbooks.Open((Resolve-Path -LiteralPath $WorkbookPath).Path, 0, $true)
+        $resolvedWorkbookPath = (Resolve-Path -LiteralPath $WorkbookPath).Path
+        $workbook = $Excel.Workbooks.Open($resolvedWorkbookPath, 0, $true, 5, "", "", $true, 1, "", $false, $false, 0, $false, $true, 1)
         $sheet = $null
         foreach ($candidate in $workbook.Worksheets) {
             if ($candidate.Name -eq $SheetName) {
@@ -77,12 +93,12 @@ function Export-SheetPicture {
         }
 
         $used = $sheet.UsedRange
-        $lastRow = [Math]::Min([int]$used.Row + [int]$used.Rows.Count - 1, $Rows)
-        $lastCol = [Math]::Min([int]$used.Column + [int]$used.Columns.Count - 1, $Cols)
-        if ($lastRow -lt 1) { $lastRow = 1 }
-        if ($lastCol -lt 1) { $lastCol = 1 }
+        $lastRow = [Math]::Min([int]$used.Row + [int]$used.Rows.Count - 1, $StartRow + $Rows - 1)
+        $lastCol = [Math]::Min([int]$used.Column + [int]$used.Columns.Count - 1, $StartCol + $Cols - 1)
+        if ($lastRow -lt $StartRow) { $lastRow = $StartRow }
+        if ($lastCol -lt $StartCol) { $lastCol = $StartCol }
 
-        $range = $sheet.Range($sheet.Cells(1, 1), $sheet.Cells($lastRow, $lastCol))
+        $range = $sheet.Range($sheet.Cells($StartRow, $StartCol), $sheet.Cells($lastRow, $lastCol))
         $sheet.Activate() | Out-Null
         $range.Select() | Out-Null
         Start-Sleep -Milliseconds 150
@@ -155,6 +171,11 @@ try {
         @{ Sheet = "Timesheet IT"; File = "timesheet_it.png"; Rows = 26; Cols = 12 },
         @{ Sheet = "Timesheet Media"; File = "timesheet_media.png"; Rows = 26; Cols = 12 },
         @{ Sheet = "Data media ACCA+CFA+CMA"; File = "data_media_sheet.png"; Rows = 26; Cols = 12 },
+        @{ Sheet = "Data SX ACCA+CMA"; File = "data_sx_acca_cma.png"; Rows = 26; Cols = 12 },
+        @{ Sheet = "Data SX CFA"; File = "data_sx_cfa.png"; Rows = 26; Cols = 12 },
+        @{ Sheet = "Data SX+Media SC"; File = "data_sx_media_sc.png"; Rows = 26; Cols = 12 },
+        @{ Sheet = "Timesheet SX"; File = "timesheet_sx.png"; Rows = 26; Cols = 12 },
+        @{ Sheet = "SX_Allocation_Build"; File = "sx_allocation_build.png"; Rows = 26; Cols = 12 },
         @{ Sheet = "Huong_dan_Approval"; File = "approval_guide.png"; Rows = 22; Cols = 10 },
         @{ Sheet = "Check_IT_CPNS"; File = "check_it_cpns.png"; Rows = 26; Cols = 12 },
         @{ Sheet = "Check_Media_Timesheet"; File = "check_media_timesheet.png"; Rows = 26; Cols = 12 },
@@ -168,38 +189,68 @@ try {
         @{ Sheet = "SX_Downstream_Approval_Result"; File = "sx_downstream_approval_result.png"; Rows = 26; Cols = 12 }
     )
 
-    foreach ($item in $finalSheets) {
-        try {
-            Export-SheetPicture `
-                -Excel $excel `
-                -WorkbookPath $FinalWorkbook `
-                -SheetName $item.Sheet `
-                -OutputPath (Join-Path $resolvedOutputDir $item.File) `
-                -Rows $item.Rows `
-                -Cols $item.Cols
+    if (-not $OnlySxInput) {
+        foreach ($item in $finalSheets) {
+            try {
+                Export-SheetPicture `
+                    -Excel $excel `
+                    -WorkbookPath $FinalWorkbook `
+                    -SheetName $item.Sheet `
+                    -OutputPath (Join-Path $resolvedOutputDir $item.File) `
+                    -Rows $item.Rows `
+                    -Cols $item.Cols `
+                    -StartRow (Item-ValueOrDefault -Item $item -Key "StartRow" -Default 1) `
+                    -StartCol (Item-ValueOrDefault -Item $item -Key "StartCol" -Default 1)
+            }
+            catch {
+                Write-Warning "Export loi sheet '$($item.Sheet)': $($_.Exception.Message)"
+            }
         }
-        catch {
-            Write-Warning "Export loi sheet '$($item.Sheet)': $($_.Exception.Message)"
+
+        $payrollSheets = @(
+            @{ Sheet = "*full*time*"; File = "payroll_ft.png"; Rows = 26; Cols = 12 },
+            @{ Sheet = "*part*time*"; File = "payroll_pt.png"; Rows = 26; Cols = 12 }
+        )
+
+        foreach ($item in $payrollSheets) {
+            try {
+                Export-SheetPicture `
+                    -Excel $excel `
+                    -WorkbookPath $PayrollWorkbook `
+                    -SheetName $item.Sheet `
+                    -OutputPath (Join-Path $resolvedOutputDir $item.File) `
+                    -Rows $item.Rows `
+                    -Cols $item.Cols `
+                    -StartRow (Item-ValueOrDefault -Item $item -Key "StartRow" -Default 1) `
+                    -StartCol (Item-ValueOrDefault -Item $item -Key "StartCol" -Default 1)
+            }
+            catch {
+                Write-Warning "Export loi sheet '$($item.Sheet)': $($_.Exception.Message)"
+            }
         }
     }
 
-    $payrollSheets = @(
-        @{ Sheet = "*full*time*"; File = "payroll_ft.png"; Rows = 26; Cols = 12 },
-        @{ Sheet = "*part*time*"; File = "payroll_pt.png"; Rows = 26; Cols = 12 }
+    $rawDir = "data\input\raw"
+    $sxSourceSheets = @(
+        @{ Workbook = (Join-Path $rawDir "ACCA.xlsx"); Sheet = "0426"; File = "sx_source_acca.png"; Rows = 26; Cols = 14; StartRow = 16; StartCol = 1 },
+        @{ Workbook = (Join-Path $rawDir "CFA.xlsx"); Sheet = "Apr 26"; File = "sx_source_cfa.png"; Rows = 26; Cols = 14; StartRow = 16; StartCol = 1 },
+        @{ Workbook = (Join-Path $rawDir "CMA.xlsx"); Sheet = "*Sup"; File = "sx_source_cma.png"; Rows = 26; Cols = 14; StartRow = 16; StartCol = 1 }
     )
 
-    foreach ($item in $payrollSheets) {
+    foreach ($item in $sxSourceSheets) {
         try {
             Export-SheetPicture `
                 -Excel $excel `
-                -WorkbookPath $PayrollWorkbook `
+                -WorkbookPath $item.Workbook `
                 -SheetName $item.Sheet `
                 -OutputPath (Join-Path $resolvedOutputDir $item.File) `
                 -Rows $item.Rows `
-                -Cols $item.Cols
+                -Cols $item.Cols `
+                -StartRow (Item-ValueOrDefault -Item $item -Key "StartRow" -Default 1) `
+                -StartCol (Item-ValueOrDefault -Item $item -Key "StartCol" -Default 1)
         }
         catch {
-            Write-Warning "Export loi sheet '$($item.Sheet)': $($_.Exception.Message)"
+            Write-Warning "Export loi SX input '$($item.Workbook)' / '$($item.Sheet)': $($_.Exception.Message)"
         }
     }
 }

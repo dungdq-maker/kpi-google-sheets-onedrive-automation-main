@@ -289,6 +289,7 @@ def build_html() -> str:
       font-weight: 700;
     }}
     .notes {{
+      display: none;
       margin-top: 12px;
       color: var(--muted);
       font-size: 14px;
@@ -507,12 +508,12 @@ def build_html() -> str:
       <div class="grid-3">
         {card("Copy nhưng lệch format", "Khi copy từ Google Sheet, Excel hoặc workbook cũ, người làm dễ mang theo format, công thức, merged cell hoặc kiểu ngày tháng khác nhau. Lỗi này thường không thấy ngay, nhưng sẽ làm công thức downstream sai.", "Manual risk")}
         {card("Không nhận ra dự án mới", "Nếu tên dự án chưa có trong danh mục hoặc project master, người làm tay có thể vẫn copy tiếp mà không biết đây là dòng cần tạo mapping mới trước khi tính chi phí.", "Manual risk")}
-        {card("Không nhận ra nhân viên mới", "MNV mới hoặc nhân viên chưa có payroll mapping có thể đi xuyên qua nhiều sheet. Output vẫn có thể chạy, nhưng chi phí sẽ thiếu, sai hoặc rơi vào nhóm chưa xác định.", "Manual risk")}
+        {card("Không nhận ra nhân viên mới", "MNV mới hoặc nhân viên chưa có mapping có thể đi xuyên qua nhiều sheet. Output vẫn có thể chạy, nhưng dòng đó sẽ thiếu mã hoặc rơi vào nhóm chưa xác định.", "Manual risk")}
       </div>
       <div class="grid-3">
         {card("Sai ở bước phân loại", "IT, Media và SX có logic khác nhau. Khi làm tay, người vận hành dễ nhầm dòng nào thuộc cost, dòng nào thuộc project, dòng nào cần loại khỏi vốn hóa.", "Manual risk")}
         {card("Sửa thẳng output", "Khi phát hiện lỗi muộn, cách xử lý thường là sửa trực tiếp trong file kết quả. Cách này nhanh trước mắt nhưng khó audit và dễ mất dấu nguyên nhân gốc.", "Manual risk")}
-        {card("Không biết lỗi lan đến đâu", "Một thay đổi nhỏ ở source có thể chạm tới payroll, project master, downstream và result sheet. Làm tay rất khó nhìn hết phạm vi tác động.", "Manual risk")}
+        {card("Không biết lỗi lan đến đâu", "Một thay đổi nhỏ ở source có thể chạm tới project master, SX staging, downstream và result sheet. Làm tay rất khó nhìn hết phạm vi tác động.", "Manual risk")}
       </div>
       <div class="notes">Câu nói gợi ý: trước automation, rủi ro lớn không nằm ở một công thức đơn lẻ, mà nằm ở việc con người phải nhớ quá nhiều quy tắc khi copy, map và phân loại dữ liệu.</div>
     </section>
@@ -524,7 +525,7 @@ def build_html() -> str:
         <tr><th>Rủi ro khi làm tay</th><th>Checkpoint hỗ trợ thế nào</th><th>Tác dụng quản trị</th></tr>
         <tr><td><span class="accent">Copy sai format hoặc sai cột</span></td><td>Đưa dữ liệu về staging/check sheet để nhìn lại dòng, tháng, MNV, project và trạng thái trước khi ghi output.</td><td>Giảm lỗi âm thầm do thao tác tay.</td></tr>
         <tr><td><span class="accent">Dự án mới chưa có mapping</span></td><td>Đẩy vào IT_New_Project_Master trước; sau khi duyệt mới chạy Check_IT_Downstream và đưa vào 3.Vốn hóa.</td><td>Không để project mới đi thẳng vào báo cáo khi chưa có master.</td></tr>
-        <tr><td><span class="accent">Nhân viên mới / thiếu MNV</span></td><td>Check_Payroll và checkpoint nghiệp vụ giúp thấy nhân viên chưa map, duplicate Month + MNV hoặc thiếu nguồn lương.</td><td>Giảm sai lệch chi phí vốn hóa do thiếu dữ liệu nhân sự.</td></tr>
+        <tr><td><span class="accent">Nhân viên mới / thiếu MNV</span></td><td>Checkpoint nghiệp vụ giúp thấy nhân viên chưa map, thiếu MNV hoặc tên nhân sự lệch giữa source và danh mục.</td><td>Giảm lỗi do dữ liệu nhân sự chưa được chuẩn hóa.</td></tr>
         <tr><td><span class="accent">SX sai ở staging</span></td><td>checkpoint data SX và Check_SX_Downstream cho thấy lỗi nguồn và lỗi lan sang downstream trước khi gộp output.</td><td>Giữ nguyên tắc clean staging trước khi chốt output.</td></tr>
       </table>
       <div class="notes">Checkpoint không thay người dùng ra quyết định. Nó đưa đúng câu hỏi ra trước mặt người duyệt: dòng nào thiếu, dòng nào mới, dòng nào cần approve, và nếu approve thì ảnh hưởng đến sheet nào.</div>
@@ -558,24 +559,29 @@ def build_html() -> str:
     </section>
 
     <section class="slide">
-      <div class="eyebrow">SOURCE PAYROLL</div>
-      <h2>Nguồn lương quyết định chi phí vốn hóa</h2>
-      <p class="subtitle">Payroll được lấy từ file nguồn riêng. Đây là phần ảnh trực tiếp từ bảng lương full time và part time để giải thích vì sao source phải đúng trước khi đẩy vào output.</p>
-      <div class="visual-grid two">
+      <div class="eyebrow">SOURCE SX INPUT</div>
+      <h2>Nguồn SX trước khi merge vào staging</h2>
+      <p class="subtitle">Đây là ảnh chụp trực tiếp từ các workbook input raw `ACCA.xlsx`, `CFA.xlsx`, `CMA.xlsx`. Điểm quan trọng là SX phải được làm sạch từ nguồn và staging trước khi đi vào workbook output.</p>
+      <div class="visual-grid">
         <div class="visual-card">
-          <span class="compare-label">Payroll source</span>
-          <h3>Lương nhân viên full time</h3>
-          <img src="generated_assets/payroll_ft.png" alt="Nguồn lương nhân viên full time">
-          <p>Nguồn lương full time là đầu vào chính để tính chi phí nhân sự theo tháng và theo mã nhân viên.</p>
+          <span class="compare-label">Input / ACCA</span>
+          <h3>ACCA.xlsx - sheet 0426</h3>
+          <img src="generated_assets/sx_source_acca.png" alt="Nguồn SX ACCA từ input raw">
+          <p>Nguồn ACCA là một phần dữ liệu SX trước khi merge. Nếu tên nhân viên, chương trình hoặc sản phẩm lệch thì staging sẽ phát hiện ở checkpoint.</p>
         </div>
         <div class="visual-card">
-          <span class="compare-label">Payroll source</span>
-          <h3>Lương nhân viên part time</h3>
-          <img src="generated_assets/payroll_pt.png" alt="Nguồn lương nhân viên part time">
-          <p>Nguồn part time cần được kiểm soát riêng vì logic dòng, tháng và nhân viên có thể khác full time.</p>
+          <span class="compare-label">Input / CFA</span>
+          <h3>CFA.xlsx - sheet Apr 26</h3>
+          <img src="generated_assets/sx_source_cfa.png" alt="Nguồn SX CFA từ input raw">
+          <p>Nguồn CFA có cấu trúc workbook riêng. Automation gom về staging để tránh việc người vận hành phải tự copy và tự chuẩn hóa format.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">Input / CMA</span>
+          <h3>CMA.xlsx - employee sheet</h3>
+          <img src="generated_assets/sx_source_cma.png" alt="Nguồn SX CMA từ input raw">
+          <p>Nguồn CMA nằm theo từng sheet nhân sự. Đây là lý do cần merge SX trước khi đưa dữ liệu sang checkpoint và output.</p>
         </div>
       </div>
-      <div class="notes">Khi trình bày, có thể nói: payroll sai thì mọi phép tính vốn hóa phía sau đều mất nền tảng.</div>
     </section>
 
     <section class="slide">
@@ -606,14 +612,8 @@ def build_html() -> str:
 
     <section class="slide">
       <div class="eyebrow">CHECKPOINT THEO NGHIỆP VỤ</div>
-      <h2>Payroll và SX cũng có lớp kiểm soát riêng</h2>
-      <div class="visual-grid">
-        <div class="visual-card">
-          <span class="compare-label">Payroll</span>
-          <h3>Check_Payroll</h3>
-          <img src="generated_assets/check_payroll.png" alt="Check Payroll từ workbook mới nhất">
-          <p>Kiểm soát source path, thời điểm cập nhật, số dòng copy và duplicate Month + MNV.</p>
-        </div>
+      <h2>SX có lớp kiểm soát riêng trước khi ghi output</h2>
+      <div class="visual-grid two">
         <div class="visual-card">
           <span class="compare-label">SX / Staging</span>
           <h3>checkpoint data SX</h3>
@@ -727,8 +727,7 @@ def build_html() -> str:
           <div class="tag">Khi có nhân viên mới</div>
           <ul class="list">
             <li>Phải map ở Mã nhân viên.</li>
-            <li>Kiểm tra lại Check_Payroll nếu lương / tháng thay đổi.</li>
-            <li>Nếu là người tham gia SX, còn phải bảo đảm mapping không làm hỏng Check_SX_Downstream.</li>
+            <li>Nếu là người tham gia SX, phải bảo đảm mapping không làm hỏng checkpoint data SX và Check_SX_Downstream.</li>
           </ul>
         </div>
       </div>
@@ -741,8 +740,7 @@ def build_html() -> str:
       <table class="table">
         <tr><th>Tình huống</th><th>Sheet thường cần xem / chỉnh</th><th>Ghi chú</th></tr>
         <tr><td><span class="accent">Dự án mới</span></td><td>IT_New_Project_Master, 1.Danh mục dự án, Check_IT_Downstream, 3.Vốn hóa</td><td>Check_IT_CPNS chỉ còn soi mismatch giữa Timesheet IT và Chi phí nhân sự IT.</td></tr>
-        <tr><td><span class="accent">Nhân viên mới</span></td><td>Mã nhân viên, Check_Payroll, Timesheet IT / Media / SX, checkpoint tương ứng</td><td>Nếu map chưa xong thì output vẫn chạy nhưng sẽ thiếu / sai dữ liệu.</td></tr>
-        <tr><td><span class="accent">Lương mới</span></td><td>Lương nhân viên full time, Lương nhân viên part time, Check_Payroll</td><td>Đây là lớp nguồn, phải đúng trước khi đẩy vào output.</td></tr>
+        <tr><td><span class="accent">Nhân viên mới</span></td><td>Mã nhân viên, Timesheet IT / Media / SX, checkpoint tương ứng</td><td>Nếu map chưa xong thì output vẫn chạy nhưng sẽ thiếu / sai dữ liệu.</td></tr>
         <tr><td><span class="accent">SX phát sinh lỗi</span></td><td>checkpoint data SX, Check_SX_Downstream, SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX, 3.Vốn hóa</td><td>Nguyên tắc: clean ở staging trước khi gộp output.</td></tr>
       </table>
       <div class="notes">Nếu cần một câu ngắn để trình bày: một thay đổi đầu vào có thể chạm từ 3 đến 6 sheet, tùy nó nằm ở nguồn, ở mapping hay ở downstream. Tự động hóa giúp mình nhìn thấy các điểm chạm đó rõ ràng hơn.</div>
