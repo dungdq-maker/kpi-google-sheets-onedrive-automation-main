@@ -477,7 +477,7 @@ def build_html() -> str:
   <main class="deck">
     <section class="slide">
       <div class="eyebrow">BOD / MANAGER DECK</div>
-      <h1>Từ thao tác tay đến vận hành chuẩn hóa</h1>
+      <h1>Từ thao tác thủ công đến vận hành chuẩn hóa</h1>
       <p class="subtitle">Một deck ngắn để show trên màn hình: tại sao bài toán này ra đời, workflow chạy như thế nào, và vì sao tự động hóa tạo ra lợi ích rõ ràng cho chi phí, chất lượng và tốc độ ra quyết định.</p>
       <div class="hero-meta">
         <div class="pill">Mục tiêu tối thượng: tính được chi phí vốn hóa</div>
@@ -485,8 +485,8 @@ def build_html() -> str:
         <div class="pill">Đầu ra: workbook sạch, có checkpoint và approval</div>
       </div>
       <div class="metrics">
-        <div class="metric"><strong>8h</strong><span>Associate nếu làm tay cho 1 chu kỳ</span></div>
-        <div class="metric"><strong>4h</strong><span>Senior nếu làm tay cho 1 chu kỳ</span></div>
+        <div class="metric"><strong>8h</strong><span>Associate nếu làm thủ công cho 1 chu kỳ</span></div>
+        <div class="metric"><strong>4h</strong><span>Senior nếu làm thủ công cho 1 chu kỳ</span></div>
         <div class="metric"><strong>1 flow</strong><span>Chuẩn hóa từ source → staging → output</span></div>
         <div class="metric"><strong>0 guess</strong><span>Giảm copy/paste và kiểm tra cảm tính</span></div>
       </div>
@@ -527,14 +527,14 @@ def build_html() -> str:
 
     <section class="slide">
       <div class="eyebrow">TRƯỚC AUTOMATION</div>
-      <h2>Người làm tay dễ sai ở đâu?</h2>
+      <h2>Người làm thủ công dễ sai ở đâu?</h2>
       <div class="grid-3">
         {card("Copy nhưng lệch format", "Khi copy từ Google Sheet, Excel hoặc workbook cũ, người làm dễ mang theo format, công thức, merged cell hoặc kiểu ngày tháng khác nhau. Lỗi này thường không thấy ngay, nhưng sẽ làm công thức downstream sai.", "Manual risk")}
-        {card("Không nhận ra dự án mới", "Nếu tên dự án chưa có trong danh mục hoặc project master, người làm tay có thể vẫn copy tiếp mà không biết đây là dòng cần tạo mapping mới trước khi tính chi phí.", "Manual risk")}
+        {card("Không nhận ra dự án mới", "Nếu tên dự án chưa có trong danh mục hoặc project master, người làm thủ công có thể vẫn copy tiếp mà không biết đây là dòng cần tạo mapping mới trước khi tính chi phí.", "Manual risk")}
         {card("Không nhận ra nhân viên mới", "MNV mới hoặc nhân viên chưa có mapping có thể đi xuyên qua nhiều sheet. Output vẫn có thể chạy, nhưng dòng đó sẽ thiếu mã hoặc rơi vào nhóm chưa xác định.", "Manual risk")}
       </div>
       <div class="grid-3">
-        {card("Sai ở bước phân loại", "IT, Media và SX có logic khác nhau. Khi làm tay, người vận hành dễ nhầm dòng nào thuộc cost, dòng nào thuộc project, dòng nào cần loại khỏi vốn hóa.", "Manual risk")}
+        {card("Sai ở bước phân loại", "IT, Media và SX có logic khác nhau. Khi làm thủ công, người vận hành dễ nhầm dòng nào thuộc cost, dòng nào thuộc project, dòng nào cần loại khỏi vốn hóa.", "Manual risk")}
         {card("Sửa thẳng output", "Khi phát hiện lỗi muộn, cách xử lý thường là sửa trực tiếp trong file kết quả. Cách này nhanh trước mắt nhưng khó audit và dễ mất dấu nguyên nhân gốc.", "Manual risk")}
         {card("Không biết lỗi lan đến đâu", "Một thay đổi nhỏ ở source có thể chạm tới project master, SX staging, downstream và result sheet. Làm tay rất khó nhìn hết phạm vi tác động.", "Manual risk")}
       </div>
@@ -545,8 +545,8 @@ def build_html() -> str:
       <div class="eyebrow">CHECKPOINT GIÚP GÌ?</div>
       <h2>Checkpoint biến lỗi âm thầm thành danh sách cần xử lý</h2>
       <table class="table">
-        <tr><th>Rủi ro khi làm tay</th><th>Checkpoint hỗ trợ thế nào</th><th>Tác dụng quản trị</th></tr>
-        <tr><td><span class="accent">Copy sai format hoặc sai cột</span></td><td>Đưa dữ liệu về staging/check sheet để nhìn lại dòng, tháng, MNV, project và trạng thái trước khi ghi output.</td><td>Giảm lỗi âm thầm do thao tác tay.</td></tr>
+        <tr><th>Rủi ro khi làm thủ công</th><th>Checkpoint hỗ trợ thế nào</th><th>Tác dụng quản trị</th></tr>
+        <tr><td><span class="accent">Copy sai format hoặc sai cột</span></td><td>Đưa dữ liệu về staging/check sheet để nhìn lại dòng, tháng, MNV, project và trạng thái trước khi ghi output.</td><td>Giảm lỗi âm thầm do thao tác thủ công.</td></tr>
         <tr><td><span class="accent">Dự án mới chưa có mapping</span></td><td>Đẩy vào IT_New_Project_Master trước; sau khi duyệt mới chạy Check_IT_Downstream và đưa vào 3.Vốn hóa.</td><td>Không để project mới đi thẳng vào báo cáo khi chưa có master.</td></tr>
         <tr><td><span class="accent">Nhân viên mới / thiếu MNV</span></td><td>Checkpoint nghiệp vụ giúp thấy nhân viên chưa map, thiếu MNV hoặc tên nhân sự lệch giữa source và danh mục.</td><td>Giảm lỗi do dữ liệu nhân sự chưa được chuẩn hóa.</td></tr>
         <tr><td><span class="accent">SX sai ở staging</span></td><td>checkpoint data SX và Check_SX_Downstream cho thấy lỗi nguồn và lỗi lan sang downstream trước khi gộp output.</td><td>Giữ nguyên tắc clean staging trước khi chốt output.</td></tr>
@@ -557,7 +557,7 @@ def build_html() -> str:
     <section class="slide">
       <div class="eyebrow">ẢNH TỪ FILE MỚI NHẤT</div>
       <h2>Trước đây: phải mở từng nguồn để tự đối chiếu</h2>
-      <p class="subtitle">Các ảnh này là ảnh sheet riêng lẻ lấy từ file mới nhất: nguồn IT, nguồn Media và Data media. Khi làm tay, người vận hành phải tự mở từng nguồn này để kiểm tra mapping trước khi biết dữ liệu nào đủ điều kiện đi tiếp.</p>
+      <p class="subtitle">Các ảnh này là ảnh sheet riêng lẻ lấy từ file mới nhất: nguồn IT, nguồn Media và Data media. Khi làm thủ công, người vận hành phải tự mở từng nguồn này để kiểm tra mapping trước khi biết dữ liệu nào đủ điều kiện đi tiếp.</p>
       <div class="visual-grid">
         <div class="visual-card">
           <span class="compare-label">Source / IT</span>
@@ -630,7 +630,7 @@ def build_html() -> str:
           <p>Checkpoint Media kiểm tra mapping giữa Timesheet Media và Data media trước khi đẩy vào result.</p>
         </div>
       </div>
-      <div class="notes">Đây là điểm khác biệt lớn so với làm tay: người duyệt nhìn thấy ngoại lệ ở checkpoint, không phải phát hiện lỗi sau khi báo cáo đã ra.</div>
+      <div class="notes">Đây là điểm khác biệt lớn so với làm thủ công: người duyệt nhìn thấy ngoại lệ ở checkpoint, không phải phát hiện lỗi sau khi báo cáo đã ra.</div>
     </section>
 
     <section class="slide">
@@ -698,10 +698,10 @@ def build_html() -> str:
       <h2>Vì sao tự động hóa đáng làm?</h2>
       <table class="table">
         <tr><th>Lợi ích</th><th>Tác dụng thực tế</th></tr>
-        <tr><td><span class="accent">Tiết kiệm thời gian</span></td><td>Nếu làm tay mất 8h với Associate hoặc 4h với Senior, automation chuyển phần nặng sang kiểm tra và phê duyệt. Mỗi chu kỳ có thể tiết kiệm gần 1 ngày công Associate hoặc nửa ngày Senior.</td></tr>
+        <tr><td><span class="accent">Tiết kiệm thời gian</span></td><td>Nếu làm thủ công theo quy trình hiện tại mất khoảng 8h với Associate hoặc 4h với Senior, tự động hóa giúp giảm lỗi thao tác thủ công và chuyển phần nặng sang kiểm tra / phê duyệt. Mỗi chu kỳ có thể giảm xuống khoảng 4h với Associate hoặc 2h với Senior có kinh nghiệm, đồng thời còn tiềm năng giảm sâu hơn khi checkpoint và approval được chuẩn hóa tiếp.</td></tr>
         <tr><td><span class="accent">Giảm sai sót</span></td><td>Không còn phụ thuộc vào thao tác copy/paste, công thức thủ công hay sửa lẻ tẻ nhiều nơi.</td></tr>
         <tr><td><span class="accent">Dễ audit</span></td><td>Có checkpoint, result sheet và log để truy ngược từng quyết định.</td></tr>
-        <tr><td><span class="accent">Dễ scale</span></td><td>Khi khối lượng tăng, hệ thống vẫn chạy theo cùng một logic thay vì tăng người làm tay.</td></tr>
+        <tr><td><span class="accent">Dễ scale</span></td><td>Khi khối lượng tăng, hệ thống vẫn chạy theo cùng một logic thay vì tăng người thao tác thủ công.</td></tr>
       </table>
       <div class="two-col" style="margin-top:18px;">
         <div class="card">
@@ -789,7 +789,7 @@ def build_html() -> str:
       <div class="grid-2">
         <div class="card">
           <div class="tag">Giá trị</div>
-          <p>Giảm thời gian thao tác tay, giảm lỗi khi copy/paste, giảm phụ thuộc vào một cá nhân, và tăng khả năng bàn giao.</p>
+          <p>Giảm thời gian thao tác thủ công, giảm lỗi khi copy/paste, giảm phụ thuộc vào một cá nhân, và tăng khả năng bàn giao.</p>
         </div>
         <div class="card">
           <div class="tag">Quản trị</div>
@@ -801,7 +801,7 @@ def build_html() -> str:
         </div>
         <div class="card">
           <div class="tag">Một câu chốt</div>
-          <p>Workflow này biến một công việc nặng thao tác tay thành một quy trình có kiểm soát, có thể mở rộng và có thể audit.</p>
+          <p>Workflow này biến một công việc nặng thao tác thủ công thành một quy trình có kiểm soát, có thể mở rộng và có thể audit.</p>
         </div>
       </div>
       <div class="footer">Mở file HTML này trên trình duyệt để trình chiếu. Nếu muốn, có thể dùng F11 hoặc chế độ toàn màn hình.</div>
