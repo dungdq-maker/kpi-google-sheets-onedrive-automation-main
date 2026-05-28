@@ -208,6 +208,7 @@ def build_html() -> str:
       box-shadow: var(--shadow);
       padding: 24px;
       backdrop-filter: blur(8px);
+      cursor: zoom-in;
     }}
     .card h3 {{
       font-size: 24px;
@@ -359,6 +360,7 @@ def build_html() -> str:
       flex-direction: column;
       gap: 12px;
       min-height: 0;
+      cursor: zoom-in;
     }}
     .visual-card img {{
       width: 100%;
@@ -448,6 +450,36 @@ def build_html() -> str:
       font-size: 15px;
       line-height: 1.5;
       text-align: center;
+    }}
+    .lightbox-text {{
+      display: none;
+      width: min(92vw, 980px);
+      max-height: 82vh;
+      overflow: auto;
+      padding: 34px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, rgba(14,28,56,.98), rgba(8,22,43,.98));
+      border: 1px solid rgba(255,255,255,.16);
+      box-shadow: 0 24px 90px rgba(0,0,0,.5);
+      color: var(--text);
+    }}
+    .lightbox-text .tag, .lightbox-text .compare-label {{
+      margin-bottom: 14px;
+    }}
+    .lightbox-text h3 {{
+      font-family: "Times New Roman", Georgia, serif;
+      font-size: clamp(30px, 4vw, 50px);
+      line-height: 1.05;
+      margin-bottom: 18px;
+    }}
+    .lightbox-text p, .lightbox-text li {{
+      font-size: clamp(20px, 2vw, 28px);
+      line-height: 1.65;
+      color: #dbe7fb;
+    }}
+    .lightbox-text ul {{
+      margin: 0;
+      padding-left: 28px;
     }}
     .lightbox-close {{
       position: fixed;
@@ -858,12 +890,14 @@ def build_html() -> str:
     <button class="lightbox-close" type="button" aria-label="Đóng ảnh phóng to">×</button>
     <div class="lightbox-panel">
       <img id="lightboxImage" alt="">
+      <div class="lightbox-text" id="lightboxText"></div>
       <div class="lightbox-caption" id="lightboxCaption"></div>
     </div>
   </div>
   <script>
     const lightbox = document.getElementById('imageLightbox');
     const lightboxImage = document.getElementById('lightboxImage');
+    const lightboxText = document.getElementById('lightboxText');
     const lightboxCaption = document.getElementById('lightboxCaption');
     const closeButton = lightbox.querySelector('.lightbox-close');
     const slides = Array.from(document.querySelectorAll('.slide'));
@@ -891,13 +925,24 @@ def build_html() -> str:
       showSlide(currentSlide + direction);
     }}
 
-    function openLightbox(img) {{
-      lightboxImage.src = img.currentSrc || img.src;
-      lightboxImage.alt = img.alt || '';
-      const card = img.closest('.visual-card');
-      const title = card?.querySelector('h3')?.textContent || 'Ảnh minh họa';
-      const description = card?.querySelector('p')?.textContent || '';
-      lightboxCaption.textContent = description ? `${{title}} - ${{description}}` : title;
+    function openCardLightbox(card) {{
+      const img = card.querySelector('img');
+      const title = card.querySelector('h3')?.textContent || 'Nội dung';
+      const description = card.querySelector('p')?.textContent || '';
+      if (img) {{
+        lightboxImage.style.display = 'block';
+        lightboxText.style.display = 'none';
+        lightboxImage.src = img.currentSrc || img.src;
+        lightboxImage.alt = img.alt || title;
+        lightboxText.innerHTML = '';
+        lightboxCaption.textContent = description ? `${{title}} - ${{description}}` : title;
+      }} else {{
+        lightboxImage.style.display = 'none';
+        lightboxImage.removeAttribute('src');
+        lightboxText.style.display = 'block';
+        lightboxText.innerHTML = card.innerHTML;
+        lightboxCaption.textContent = '';
+      }}
       lightbox.classList.add('open');
       lightbox.setAttribute('aria-hidden', 'false');
     }}
@@ -906,11 +951,24 @@ def build_html() -> str:
       lightbox.classList.remove('open');
       lightbox.setAttribute('aria-hidden', 'true');
       lightboxImage.removeAttribute('src');
+      lightboxImage.style.display = 'block';
+      lightboxText.innerHTML = '';
+      lightboxText.style.display = 'none';
       lightboxCaption.textContent = '';
     }}
 
-    document.querySelectorAll('.visual-card img').forEach((img) => {{
-      img.addEventListener('click', () => openLightbox(img));
+    document.querySelectorAll('.visual-card, .card, .box').forEach((card) => {{
+      card.setAttribute('tabindex', '0');
+      card.addEventListener('click', (event) => {{
+        if (event.target.closest('a, button, video, input, textarea, select')) return;
+        openCardLightbox(card);
+      }});
+      card.addEventListener('keydown', (event) => {{
+        if (event.key === 'Enter') {{
+          event.preventDefault();
+          openCardLightbox(card);
+        }}
+      }});
     }});
     prevSlide.addEventListener('click', () => moveSlide(-1));
     nextSlide.addEventListener('click', () => moveSlide(1));
