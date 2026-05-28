@@ -817,8 +817,8 @@
     </section>
 
     <section class="slide">
-      <div class="eyebrow">VÍ DỤ THỰC TẾ</div>
-      <h2>IT, Media và những khó khăn thường gặp</h2>
+      <div class="eyebrow">KHÓ KHĂN XỬ LÝ</div>
+      <h2>IT, Media, SX và những khó khăn thường gặp</h2>
       <div class="grid-3">
         
     <div class="card">
@@ -836,9 +836,9 @@
     
         
     <div class="card">
-      <div class="tag">Common pain</div>
-      <h3>Struggles</h3>
-      <p>Khó nhất không phải code, mà là dữ liệu đầu vào không sạch, tên sheet thay đổi, nhân sự mới chưa map xong, hoặc project mới chưa có master đúng.</p>
+      <div class="tag">Need to know</div>
+      <h3>SX</h3>
+      <p>SX thường vướng ở staging: dữ liệu nguồn lệch, mapping lệch hoặc downstream bị kéo sai. Vì vậy phải clean staging trước rồi mới gộp output.</p>
     </div>
     
       </div>
@@ -852,14 +852,15 @@
           </ul>
         </div>
         <div class="box">
-          <div class="tag">Khi có nhân viên mới</div>
+          <div class="tag">Khi có nhân viên mới hoặc SX phát sinh lỗi</div>
           <ul class="list">
-            <li>Phải map ở Mã nhân viên.</li>
+            <li>Phải map ở Mã nhân viên và kiểm tra Timesheet IT / Media / SX, checkpoint tương ứng.</li>
             <li>Nếu là người tham gia SX, phải bảo đảm mapping không làm hỏng checkpoint data SX và Check_SX_Downstream.</li>
+            <li>Nguyên tắc chung: một đầu vào mới thường kéo theo cập nhật ở danh mục, mapping, checkpoint và sheet kết quả.</li>
           </ul>
         </div>
       </div>
-      <div class="notes">Bạn có thể nói thẳng: một dự án mới hoặc nhân viên mới không chỉ sửa một ô. Nó thường kéo theo cập nhật ở nhiều lớp: danh mục, mapping, checkpoint, approval và sheet kết quả.</div>
+      <div class="notes">Bạn có thể nói thẳng: một dự án mới, nhân viên mới hoặc lỗi SX không chỉ sửa một ô. Nó thường kéo theo cập nhật ở nhiều lớp: danh mục, mapping, checkpoint, approval và sheet kết quả.</div>
     </section>
 
     <section class="slide">
@@ -1039,6 +1040,10 @@
         <h3 style="margin-bottom: 12px;">Xem dashboard HTML thực tế</h3>
         <p style="margin-bottom: 16px;">Dashboard KQKD 2026 của 11 BU — được tạo hoàn toàn bằng Claude Cowork từ file dữ liệu nguồn.</p>
         <a href="dashboard_kqkd_2026.html" target="_blank" rel="noopener" style="display: inline-block; padding: 14px 28px; border-radius: 999px; background: linear-gradient(135deg, #d8b15d, #a16207); color: #08162b; font-weight: 700; text-decoration: none; font-size: 15px; letter-spacing: 0.04em; box-shadow: 0 8px 24px rgba(216, 177, 93, 0.25);">→ Mở Dashboard KQKD 2026</a>
+        <div style="margin-top: 18px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; font-size: 14px;">
+          <a href="dashboard_kqkd_2026.html" target="_blank" rel="noopener" style="padding: 10px 16px; border-radius: 999px; border: 1px solid rgba(216,177,93,.35); color: var(--gold); text-decoration: none; background: rgba(216,177,93,.08);">Dashboard KQKD 2026</a>
+          <a href="sapp_portfolio_dashboard.html" target="_blank" rel="noopener" style="padding: 10px 16px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); color: var(--text); text-decoration: none; background: rgba(255,255,255,.04);">SAPP Portfolio Dashboard</a>
+        </div>
       </div>
     </section>
 
@@ -1107,9 +1112,17 @@
     const prevSlide = document.getElementById('prevSlide');
     const nextSlide = document.getElementById('nextSlide');
     const slideCounter = document.getElementById('slideCounter');
+    const deckSlides = {
+      tab1: Array.from(document.querySelectorAll('#deck1 .slide')),
+      tab2: Array.from(document.querySelectorAll('#deck2 .slide'))
+    };
+    const deckOrders = {
+      tab1: [0, 1, 2, 3, 4, 5, 11, 6, 8, 7, 9, 10, 12, 13, 14],
+      tab2: deckSlides.tab2.map((_, index) => index)
+    };
     const decks = {
-      tab1: { slides: Array.from(document.querySelectorAll('#deck1 .slide')), current: 0 },
-      tab2: { slides: Array.from(document.querySelectorAll('#deck2 .slide')), current: 0 }
+      tab1: { slides: deckOrders.tab1.map((index) => deckSlides.tab1[index]), current: 0 },
+      tab2: { slides: deckSlides.tab2, current: 0 }
     };
     let activeTab = 'tab1';
 

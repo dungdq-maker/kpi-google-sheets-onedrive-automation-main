@@ -832,12 +832,12 @@ def build_html() -> str:
     </section>
 
     <section class="slide">
-      <div class="eyebrow">VÍ DỤ THỰC TẾ</div>
-      <h2>IT, Media và những khó khăn thường gặp</h2>
+      <div class="eyebrow">KHÓ KHĂN XỬ LÝ</div>
+      <h2>IT, Media, SX và những khó khăn thường gặp</h2>
       <div class="grid-3">
         {card("IT", "Dòng nào đã vào Timesheet IT, dòng nào sang Chi phí nhân sự IT, dòng nào cần tạo mới project master? Chốt bằng checkpoint để tránh sửa sai ở output.", "Need to know")}
         {card("Media", "Dữ liệu đầu vào thường phải đối chiếu giữa Timesheet Media và Data media ACCA+CFA+CMA. Cần chắc rằng mapping dự án, tháng và người làm task là đúng.", "Need to know")}
-        {card("Struggles", "Khó nhất không phải code, mà là dữ liệu đầu vào không sạch, tên sheet thay đổi, nhân sự mới chưa map xong, hoặc project mới chưa có master đúng.", "Common pain")}
+        {card("SX", "SX thường vướng ở staging: dữ liệu nguồn lệch, mapping lệch hoặc downstream bị kéo sai. Vì vậy phải clean staging trước rồi mới gộp output.", "Need to know")}
       </div>
       <div class="two-col" style="margin-top:18px;">
         <div class="box">
@@ -849,14 +849,15 @@ def build_html() -> str:
           </ul>
         </div>
         <div class="box">
-          <div class="tag">Khi có nhân viên mới</div>
+          <div class="tag">Khi có nhân viên mới hoặc SX phát sinh lỗi</div>
           <ul class="list">
-            <li>Phải map ở Mã nhân viên.</li>
+            <li>Phải map ở Mã nhân viên và kiểm tra Timesheet IT / Media / SX, checkpoint tương ứng.</li>
             <li>Nếu là người tham gia SX, phải bảo đảm mapping không làm hỏng checkpoint data SX và Check_SX_Downstream.</li>
+            <li>Nguyên tắc chung: một đầu vào mới thường kéo theo cập nhật ở danh mục, mapping, checkpoint và sheet kết quả.</li>
           </ul>
         </div>
       </div>
-      <div class="notes">Bạn có thể nói thẳng: một dự án mới hoặc nhân viên mới không chỉ sửa một ô. Nó thường kéo theo cập nhật ở nhiều lớp: danh mục, mapping, checkpoint, approval và sheet kết quả.</div>
+      <div class="notes">Bạn có thể nói thẳng: một dự án mới, nhân viên mới hoặc lỗi SX không chỉ sửa một ô. Nó thường kéo theo cập nhật ở nhiều lớp: danh mục, mapping, checkpoint, approval và sheet kết quả.</div>
     </section>
 
     <section class="slide">
@@ -919,9 +920,17 @@ def build_html() -> str:
     const prevSlide = document.getElementById('prevSlide');
     const nextSlide = document.getElementById('nextSlide');
     const slideCounter = document.getElementById('slideCounter');
+    const deckSlides = {{
+      tab1: Array.from(document.querySelectorAll('#deck1 .slide')),
+      tab2: Array.from(document.querySelectorAll('#deck2 .slide'))
+    }};
+    const deckOrders = {{
+      tab1: [0, 1, 2, 3, 4, 5, 11, 6, 8, 7, 9, 10, 12, 13, 14],
+      tab2: deckSlides.tab2.map((_, index) => index)
+    }};
     const decks = {{
-      tab1: {{ slides: Array.from(document.querySelectorAll('#deck1 .slide')), current: 0 }},
-      tab2: {{ slides: Array.from(document.querySelectorAll('#deck2 .slide')), current: 0 }}
+      tab1: {{ slides: deckOrders.tab1.map((index) => deckSlides.tab1[index]), current: 0 }},
+      tab2: {{ slides: deckSlides.tab2, current: 0 }}
     }};
     let activeTab = 'tab1';
 
