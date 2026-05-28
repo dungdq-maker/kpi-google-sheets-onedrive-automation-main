@@ -1,0 +1,157 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>B2B Portfolio Risk Dashboard</title>
+<style>
+:root{--n:#163f62;--b:#2872ab;--bg:#f3f7fb;--card:#fff;--tx:#16324a;--mu:#6a7b8b;--ln:#dce6f0;--red:#c73c45;--amber:#c68412;--green:#15925a;--teal:#008995;--purple:#704bc4}
+*{box-sizing:border-box}body{margin:0;font:14px "Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--tx)}.wrap{max-width:1570px;margin:auto;padding:22px}
+.hero{background:linear-gradient(120deg,#143955,#28678f);border-radius:18px;padding:25px 28px;color:#fff;display:flex;justify-content:space-between;gap:20px}.hero h1{margin:0 0 8px;font-size:28px}.hero p{margin:0;color:#dfedf7;line-height:1.55;max-width:970px}.stamp{background:#ffffff1f;border-radius:12px;padding:10px 13px;white-space:nowrap;font-size:12px}
+.controls{display:grid;grid-template-columns:1.08fr repeat(6,1fr);gap:11px;margin:17px 0}.ctl,.card,.panel{background:var(--card);border:1px solid var(--ln);border-radius:14px}.ctl{padding:10px 13px}.ctl label{display:block;text-transform:uppercase;font-size:11px;color:var(--mu);font-weight:700;letter-spacing:.05em;margin-bottom:7px}select{width:100%;padding:7px;border:1px solid var(--ln);border-radius:7px;background:#fff}.r{display:flex;align-items:center;gap:8px}.r input{width:100%;accent-color:var(--b)}.r span{min-width:62px;text-align:right;font-weight:700;font-size:12px}
+.tabs{display:flex;gap:7px;overflow:auto;margin:15px 0 12px}.tab{background:#fff;border:1px solid var(--ln);border-radius:999px;padding:10px 15px;color:var(--n);cursor:pointer;font-weight:650;white-space:nowrap}.tab.on{background:#20547e;color:white;border-color:#20547e}
+.page{display:none}.page.on{display:block}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card{padding:14px 15px;min-height:103px}.lab{font-size:11px;color:var(--mu);text-transform:uppercase;font-weight:700;letter-spacing:.05em}.val{font-size:25px;font-weight:750;color:var(--n);margin:9px 0 5px}.note{font-size:12px;color:var(--mu)}
+.alerts{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:14px 0}.alert{border-radius:13px;color:white;padding:13px 15px}.a1{background:linear-gradient(120deg,#c43a44,#e6585f)}.a2{background:linear-gradient(120deg,#bb7608,#e4a129)}.a3{background:linear-gradient(120deg,#007e88,#13a0a7)}.a4{background:linear-gradient(120deg,#6240b7,#8a62e1)}.a5{background:linear-gradient(120deg,#184d72,#2d7cab)}.alert b{font-size:30px;display:block;margin:5px 0}.alert small{opacity:.93}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:13px}.panel{padding:16px}.panel h2{font-size:17px;margin:0 0 5px}.desc{font-size:12px;color:var(--mu);line-height:1.48;margin:0 0 14px}
+.frow{display:flex;gap:13px;align-items:center;margin:10px 0}.fname{width:145px;font-weight:650;font-size:12px}.ftrack{height:34px;border-radius:8px;background:#edf3f8;overflow:hidden;flex:1}.ffill{height:100%;display:flex;align-items:center;justify-content:flex-end;padding-right:10px;color:#fff;font-weight:bold;font-size:12px;border-radius:8px;min-width:100px}
+.bars{display:flex;flex-direction:column;gap:9px}.brow{display:grid;grid-template-columns:minmax(130px,220px) 1fr 92px;gap:9px;align-items:center;font-size:12px}.blabel{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:650}.btrack{height:21px;border-radius:6px;background:#edf3f8;overflow:hidden}.bfill{height:100%;border-radius:6px}.bvalue{text-align:right;font-weight:700}
+.twrap{max-height:520px;overflow:auto;border:1px solid #e7eef5;border-radius:9px}table{border-collapse:collapse;width:100%;font-size:12px;min-width:760px}th,td{padding:9px 8px;border-bottom:1px solid #e8eef4;white-space:nowrap;text-align:left}th{background:#f7fafc;color:var(--mu);text-transform:uppercase;font-size:10px;position:sticky;top:0;z-index:1}td.num,th.num{text-align:right}.neg{color:var(--red);font-weight:700}.pos{color:var(--green);font-weight:700}
+.badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:700;font-size:11px}.Critical,.High{background:#fdecec;color:var(--red)}.Watch{background:#fff4df;color:var(--amber)}.Normal{background:#eaf8ef;color:var(--green)}.flag{background:#edf3f8;color:#335875;padding:3px 7px;border-radius:99px;font-size:10px;font-weight:650;margin:2px;display:inline-block}
+.formula,.callout{padding:12px 14px;border-radius:9px;background:#f5f9fd;color:#426078;font-size:12px;line-height:1.5;margin:11px 0}.callout{border-left:4px solid var(--b);font-size:13px}
+.dbox{display:flex;gap:20px;align-items:center;margin-top:15px}.donut{height:145px;width:145px;border-radius:50%;position:relative;flex:none}.donut:after{content:"";position:absolute;width:83px;height:83px;border-radius:50%;background:white;left:31px;top:31px}.legend{font-size:12px;display:grid;gap:8px}.legend span.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px}
+.matrix td:not(:first-child):not(:nth-child(2)){text-align:center}.yes{font-weight:bold;color:var(--red)}.no{color:#a3b0ba}
+.footer{font-size:12px;color:var(--mu);margin:18px 2px;line-height:1.5}
+@media(max-width:1050px){.controls,.cards,.alerts,.cols{grid-template-columns:1fr}.hero{display:block}.stamp{margin-top:14px;display:inline-block}}
+</style></head><body><div class="wrap">
+<div class="hero"><div><h1>B2B Job Portfolio Risk Dashboard</h1><p>Dashboard quản trị dưới góc nhìn nhà quản lý danh mục: giám sát profitability, WIP và tiến độ billing, Revenue Day, mức tiền còn có thể thu, đồng thời nhận diện hợp đồng đã ký nhưng tốc độ hoàn thành dịch vụ/chuyển thành doanh thu còn chậm.</p></div><div class="stamp">Nguồn: Tổng hợp chi phí &amp; doanh thu theo deal<br>Risk focus: Margin • WIP • Billing speed • Cash exposure • Aged delivery backlog<br>Ngày đánh giá contract age: <b id="asOfDate"></b></div></div>
+<div class="controls">
+<div class="ctl"><label>Owner</label><select id="owner"></select></div>
+<div class="ctl"><label>Margin cảnh báo</label><div class="r"><input id="mlim" type="range" min="10" max="80" step="5" value="30"><span id="mtxt"></span></div></div>
+<div class="ctl"><label>WIP cảnh báo</label><div class="r"><input id="wlim" type="range" min="5000000" max="50000000" step="1000000" value="10000000"><span id="wtxt"></span></div></div>
+<div class="ctl"><label>Revenue Day cảnh báo</label><div class="r"><input id="rlim" type="range" min="30" max="180" step="10" value="90"><span id="rtxt"></span></div></div>
+<div class="ctl"><label>Tiền còn thu cảnh báo</label><div class="r"><input id="clim" type="range" min="50000000" max="700000000" step="10000000" value="100000000"><span id="ctxt"></span></div></div>
+<div class="ctl"><label>Delivery backlog cảnh báo</label><div class="r"><input id="dlim" type="range" min="10000000" max="800000000" step="10000000" value="100000000"><span id="dtxt"></span></div></div>
+<div class="ctl"><label>Contract age cảnh báo</label><div class="r"><input id="alim" type="range" min="0" max="730" step="5" value="60"><span id="atxt"></span></div></div>
+</div>
+<nav class="tabs"><button class="tab on" data-id="exec">1. Executive</button><button class="tab" data-id="margin">2. Margin</button><button class="tab" data-id="wip">3. WIP &amp; Billing</button><button class="tab" data-id="revenue">4. Revenue Day</button><button class="tab" data-id="cash">5. Cash Exposure</button><button class="tab" data-id="delivery">6. Delivery Backlog</button><button class="tab" data-id="heatmap">7. Heatmap</button></nav>
+
+<section id="exec" class="page on"><div id="sumCards" class="cards"></div><div id="alerts" class="alerts"></div><div class="cols"><div class="panel"><h2>Conversion Funnel</h2><p class="desc">Quy mô danh mục chuyển đổi thành hóa đơn, doanh thu và tiền thực nhận.</p><div id="funnel"></div></div><div class="panel"><h2>Top Action List</h2><p class="desc">Xếp hạng theo risk score và exposure. Aged delivery backlog risk cảnh báo job đồng thời vượt ngưỡng backlog tiền và ngưỡng Contract Age được lựa chọn phía trên.</p><div class="twrap"><table><thead><tr><th>Job</th><th>Owner</th><th class="num">Score</th><th>Risk flag</th></tr></thead><tbody id="action"></tbody></table></div></div></div></section>
+<section id="margin" class="page"><div class="cols"><div class="panel"><h2>Margin % theo job có doanh thu</h2><p class="desc">Margin % = Margin / Doanh thu thực hiện. Các job doanh thu bằng 0 được phân tích trong bảng exception.</p><div id="marginBars" class="bars"></div></div><div class="panel"><h2>Cost incurred without revenue</h2><p class="desc">Cảnh báo job đã phát sinh chi phí nhưng chưa ghi nhận doanh thu.</p><div class="twrap"><table><thead><tr><th>Job</th><th class="num">Chi phí</th><th class="num">Margin</th><th>Issue</th></tr></thead><tbody id="marginException"></tbody></table></div></div></div><div class="panel" style="margin-top:13px"><h2>Profitability detail</h2><div class="twrap"><table><thead><tr><th>Job</th><th>Owner</th><th class="num">Revenue</th><th class="num">P&amp;L cost</th><th class="num">WIP</th><th class="num">Margin</th><th class="num">Margin %</th></tr></thead><tbody id="profit"></tbody></table></div></div></section>
+<section id="wip" class="page"><div class="cols"><div class="panel"><h2>WIP theo job</h2><p class="desc">Chỉ hiển thị job có WIP. Màu đỏ = vượt ngưỡng hoặc WIP chưa chuyển thành billing/revenue.</p><div id="wipBars" class="bars"></div></div><div class="panel"><h2>WIP / Billing Exception</h2><div class="twrap"><table><thead><tr><th>Job</th><th class="num">WIP</th><th class="num">Invoiced</th><th class="num">Revenue</th><th>Action</th></tr></thead><tbody id="wipList"></tbody></table></div></div></div></section>
+<section id="revenue" class="page"><div id="revCards" class="cards"></div><div class="cols"><div class="panel"><h2>Revenue Day theo job</h2><p class="desc">Ngày xuất hóa đơn lần 1 trừ ngày ký hợp đồng. Màu đỏ = vượt ngưỡng.</p><div id="revBars" class="bars"></div></div><div class="panel"><h2>Chưa invoice nhưng có exposure</h2><div class="twrap"><table><thead><tr><th>Job</th><th class="num">WIP</th><th class="num">Chi phí</th><th class="num">Còn thu</th></tr></thead><tbody id="notBilled"></tbody></table></div></div></div></section>
+<section id="cash" class="page"><div id="cashCards" class="cards"></div><div class="cols"><div class="panel"><h2>Tiền còn có thể thu theo job</h2><div class="dbox"><div id="donut" class="donut"></div><div id="legend" class="legend"></div></div></div><div class="panel"><h2>Future Collection Ranking</h2><p class="desc">Chỉ hiển thị job có tiền còn có thể thu.</p><div id="cashBars" class="bars"></div></div></div><div class="callout"><b>Lưu ý về AR Collection Day:</b> dữ liệu hiện tại cover được rủi ro <b>Cash Collection Exposure</b>, nhưng chưa tính đúng số ngày thu tiền sau billing. Để đo AR Collection Day và AR Aging cần bổ sung invoice due date, AR balance theo từng hóa đơn và actual collection date.</div></section>
+
+<section id="delivery" class="page">
+<div id="deliveryCards" class="cards"></div>
+<div class="cols">
+  <div class="panel">
+    <h2>Contract-to-Delivery Conversion</h2>
+    <p class="desc">Theo dõi giá trị hợp đồng đã ký được chuyển thành billing và doanh thu thực hiện. Backlog phản ánh phần giá trị hợp đồng chưa tạo revenue.</p>
+    <div id="deliveryFunnel"></div>
+  </div>
+  <div class="panel">
+    <h2>Delivery Backlog Ranking by Job</h2>
+    <p class="desc">Delivery Backlog = Giá trị HĐ không thuế – Doanh thu thực hiện lũy kế. Màu đỏ thể hiện job vượt ngưỡng cảnh báo đã lựa chọn.</p>
+    <div id="backlogBars" class="bars"></div>
+  </div>
+</div>
+<div class="cols">
+  <div class="panel">
+    <h2>Aged Backlog Exception List</h2>
+    <p class="desc">Chỉ cảnh báo các job có backlog vượt ngưỡng giá trị và đã tồn tại quá số ngày Contract Age được lựa chọn.</p>
+    <div class="twrap"><table><thead><tr><th>Job</th><th>Owner</th><th class="num">Contract net</th><th class="num">Backlog</th><th class="num">Contract age</th><th class="num">Cash received</th><th class="num">WIP</th><th>Delivery flag</th></tr></thead><tbody id="deliveryException"></tbody></table></div>
+  </div>
+  <div class="panel">
+    <h2>Owner Delivery Conversion</h2>
+    <p class="desc">Đánh giá không chỉ việc mang job về, mà còn khả năng chuyển hợp đồng thành doanh thu.</p>
+    <div class="twrap"><table><thead><tr><th>Owner</th><th class="num">Contract net</th><th class="num">Revenue</th><th class="num">Conversion</th><th class="num">Backlog</th></tr></thead><tbody id="ownerDelivery"></tbody></table></div>
+  </div>
+</div>
+<div class="callout"><b>Cách đọc dashboard:</b> Aged Delivery Backlog chỉ cảnh báo khi job đồng thời có backlog lớn và hợp đồng đã tồn tại lâu hơn ngưỡng Contract Age. Đây là chỉ báo thay thế hữu ích; để kết luận chính xác việc trễ cam kết bàn giao, cần bổ sung Planned Delivery Date, Actual Delivery Date, Completion % và Acceptance Date.</div>
+</section>
+<section id="heatmap" class="page"><div class="panel"><h2>Deal Risk Heatmap &amp; Action List</h2><div class="formula">Mỗi rủi ro = 20 điểm: Margin risk | WIP risk | Revenue Day risk | Cash exposure risk | Aged Delivery Backlog risk. Critical ≥ 80; High ≥ 60; Watch ≥ 20; Normal = 0.</div><div class="twrap"><table class="matrix"><thead><tr><th>Job</th><th>Owner</th><th>Margin</th><th>WIP</th><th>Revenue Day</th><th>Cash</th><th>Aged Backlog</th><th>Score</th><th>Priority</th></tr></thead><tbody id="matrix"></tbody></table></div></div><div class="panel" style="margin-top:13px"><h2>Full Deal Register</h2><p class="desc">Job có toàn bộ chỉ số tài chính bằng 0 được bỏ qua; job có revenue = 0 nhưng đã phát sinh chi phí/WIP vẫn giữ lại để cảnh báo.</p><div class="twrap"><table><thead><tr><th>Deal ID</th><th>Job</th><th>Owner</th><th class="num">Net contract</th><th class="num">Revenue</th><th class="num">Cost</th><th class="num">WIP</th><th class="num">Margin</th><th class="num">Future cash</th><th class="num">Rev. Day</th><th class="num">Contract Age</th><th>Aged Backlog</th></tr></thead><tbody id="register"></tbody></table></div></div></section>
+<div class="footer">Quy tắc hiển thị: job có toàn bộ chỉ số tài chính bằng 0 bị loại bỏ. Aged Delivery Backlog Risk chỉ kích hoạt khi job vượt đồng thời ngưỡng giá trị backlog và ngưỡng tuổi hợp đồng. Contract Age được tính từ ngày ký hợp đồng đến ngày mở dashboard.</div></div>
+<script>
+const src=[{"id": "D39584182869", "job": "Trường Đại học Thăng Long", "owner": "Tuấn Bùi Đăng", "sign": "7/11/2025", "invoice": "", "payment": "7/24/2025", "gross": 450000000, "net": 450000000, "cash": 225000000, "future": 225000000, "billed": 0, "revenue": 0, "pl": 0, "wip": 7620000, "cost": 7620000, "margin": -7620000}, {"id": "D51446632353", "job": "7799 Wedding Storyteller", "owner": "Nguyen Tien Dat", "sign": "12/24/2025", "invoice": "4/3/2026", "payment": "12/31/2025", "gross": 648000000, "net": 600000000, "cash": 420000000, "future": 228000000, "billed": 420000000, "revenue": 420000000, "pl": 11490000, "wip": 0, "cost": 11490000, "margin": 408510000}, {"id": "D40249406007", "job": "Christina - Q Coaching 1-1", "owner": "Tuấn Bùi Đăng", "sign": "7/28/2025", "invoice": "12/30/2025", "payment": "8/4/2025", "gross": 480000000, "net": 480000000, "cash": 384000000, "future": 96000000, "billed": 384000000, "revenue": 384000000, "pl": 18000000, "wip": 0, "cost": 18000000, "margin": 366000000}, {"id": "D47966146221", "job": "VT healthcare - New Deal", "owner": "Nguyen Tien Dat", "sign": "11/26/2025", "invoice": "2/13/2026", "payment": "12/4/2025", "gross": 297500000, "net": 297500000, "cash": 297500000, "future": 0, "billed": 297500000, "revenue": 297500000, "pl": 54316952, "wip": 750000, "cost": 55066952, "margin": 242433048}, {"id": "D52276087081", "job": "Viện đào tạo tiên tiến CLC & POHE", "owner": "Nguyen Tien Dat", "sign": "", "invoice": "", "payment": "", "gross": 0, "net": 0, "cash": 0, "future": 0, "billed": 0, "revenue": 0, "pl": 660000, "wip": 26016699, "cost": 26676699, "margin": -26676699}, {"id": "D52052379909", "job": "Công ty CP Công Nghiệp Techcom", "owner": "Nguyen Tien Dat", "sign": "1/12/2026", "invoice": "4/6/2026", "payment": "1/16/2026", "gross": 270000000, "net": 270000000, "cash": 270000000, "future": 0, "billed": 270000000, "revenue": 270000000, "pl": 23475050, "wip": 0, "cost": 23475050, "margin": 246524950}, {"id": "D57030459740", "job": "Techcombank", "owner": "", "sign": "", "invoice": "", "payment": "", "gross": 0, "net": 0, "cash": 0, "future": 0, "billed": 0, "revenue": 0, "pl": 60000000, "wip": 1786978, "cost": 61786978, "margin": -61786978}, {"id": "D49908856969", "job": "Trường Đại học Thăng Long 2", "owner": "Nguyen Tien Dat", "sign": "12/31/2025", "invoice": "1/7/2026", "payment": "1/5/2026", "gross": 881280000, "net": 816000000, "cash": 244800000, "future": 636480000, "billed": 244800000, "revenue": 0, "pl": 0, "wip": 18000000, "cost": 18000000, "margin": -18000000}, {"id": "D37446854804", "job": "Cảng Tàu Khách Quốc Tế Tuần Châu", "owner": "Tuấn Bùi Đăng", "sign": "5/20/2025", "invoice": "12/22/2025", "payment": "5/22/2025", "gross": 576366400, "net": 576366400, "cash": 576366400, "future": 0, "billed": 576366400, "revenue": 576366400, "pl": 135238403, "wip": 0, "cost": 135238403, "margin": 441127997}, {"id": "D49908856939", "job": "Bệnh viện Bưu điện", "owner": "", "sign": "3/24/2026", "invoice": "", "payment": "", "gross": 0, "net": 0, "cash": 0, "future": 0, "billed": 0, "revenue": 0, "pl": 2722080, "wip": 0, "cost": 2722080, "margin": -2722080}, {"id": "D47720972938", "job": "Viettel Cyber Security", "owner": "", "sign": "12/25/2025", "invoice": "3/10/2026", "payment": "3/5/2026", "gross": 194400000, "net": 180000000, "cash": 90000000, "future": 104400000, "billed": 0, "revenue": 0, "pl": 0, "wip": 0, "cost": 0, "margin": 0}, {"id": "D51379562105", "job": "Bravestars Games - Training", "owner": "", "sign": "10/28/2025", "invoice": "4/14/2026", "payment": "3/27/2026", "gross": 75000000, "net": 75000000, "cash": 75000000, "future": 0, "billed": 75000000, "revenue": 75000000, "pl": 779760, "wip": 0, "cost": 779760, "margin": 74220240}, {"id": "D7786917385", "job": "Techcombank", "owner": "", "sign": "", "invoice": "", "payment": "", "gross": 0, "net": 0, "cash": 0, "future": 0, "billed": 0, "revenue": 0, "pl": 0, "wip": 0, "cost": 0, "margin": 0}];
+const keys=['gross','net','cash','future','billed','revenue','pl','wip','cost','margin'];
+const base=src.filter(d=>keys.some(k=>Number(d[k]||0)!==0));
+const pal=['#2872ab','#008995','#704bc4','#e39423','#d0454e','#17a15c'];
+const $=id=>document.getElementById(id);
+const val=(a,k)=>a.reduce((s,d)=>s+(+d[k]||0),0);
+const money=n=>new Intl.NumberFormat('vi-VN').format(n||0)+' đ';
+const sm=n=>Math.abs(n)>=1e9?(n/1e9).toFixed(2)+' tỷ':Math.abs(n)>=1e6?(n/1e6).toFixed(1)+' tr':money(n);
+const pct=n=>n==null||!isFinite(n)?'—':n.toFixed(1)+'%';
+function days(a,b){if(!a||!b)return null;let x=a.split('/').map(Number),y=b.split('/').map(Number);return Math.round((new Date(y[2],y[0]-1,y[1])-new Date(x[2],x[0]-1,x[1]))/86400000)}
+function contractAge(a){if(!a)return null;let x=a.split('/').map(Number),signed=new Date(x[2],x[0]-1,x[1]),today=new Date();today=new Date(today.getFullYear(),today.getMonth(),today.getDate());return Math.max(0,Math.round((today-signed)/86400000))}
+function lim(){return{m:+$('mlim').value,w:+$('wlim').value,r:+$('rlim').value,c:+$('clim').value,d:+$('dlim').value,a:+$('alim').value}}
+function item(d){let t=lim(),rd=days(d.sign,d.invoice),age=contractAge(d.sign),mp=d.revenue?d.margin/d.revenue*100:null,backlog=Math.max(d.net-d.revenue,0);
+ let mr=d.margin<0||(mp!=null&&mp<t.m),wr=d.wip>=t.w||(d.wip>0&&(d.billed===0||d.revenue===0)),rr=(rd!=null&&rd>t.r)||(!d.invoice&&d.cost>0),cr=d.future>=t.c,dr=d.net>0&&backlog>=t.d&&age!=null&&age>=t.a;
+ let flags=[mr?'Margin':0,wr?'WIP':0,rr?'Revenue Day':0,cr?'Cash':0,dr?'Aged Backlog':0].filter(Boolean),score=flags.length*20,priority=score>=80?'Critical':score>=60?'High':score>=20?'Watch':'Normal';
+ return {...d,rd,age,backlog,mp,mr,wr,rr,cr,dr,flags,score,priority}}
+function selected(){let o=$('owner').value;return base.filter(d=>o==='ALL'||(d.owner||'Unassigned')===o).map(item)}
+function card(a,b,c){return `<div class="card"><div class="lab">${a}</div><div class="val">${b}</div><div class="note">${c}</div></div>`}
+function bar(id,rows){let max=Math.max(1,...rows.map(x=>Math.abs(x.v)));$(id).innerHTML=rows.length?rows.map(x=>`<div class="brow"><div class="blabel" title="${x.n}">${x.n}</div><div class="btrack"><div class="bfill" style="width:${Math.max(2,Math.abs(x.v)/max*100)}%;background:${x.c}"></div></div><div class="bvalue ${x.neg?'neg':''}">${x.d}</div></div>`).join(''):'<p class="desc">Không có dữ liệu phù hợp.</p>'}
+function badge(p){return `<span class="badge ${p}">${p}</span>`}
+function render(){let d=selected(),t=lim();$('mtxt').textContent=t.m+'%';$('wtxt').textContent=sm(t.w);$('rtxt').textContent=t.r+' ngày';$('ctxt').textContent=sm(t.c);$('dtxt').textContent=sm(t.d);$('atxt').textContent=t.a+' ngày';$('asOfDate').textContent=new Intl.DateTimeFormat('vi-VN').format(new Date());
+ let gross=val(d,'gross'),net=val(d,'net'),cash=val(d,'cash'),future=val(d,'future'),billed=val(d,'billed'),revenue=val(d,'revenue'),cost=val(d,'cost'),wip=val(d,'wip'),margin=val(d,'margin');
+ $('sumCards').innerHTML=[card('Net contract value',sm(net),'Quy mô HĐ không thuế'),card('Revenue ghi nhận',sm(revenue),'Revenue / Net: '+pct(net?revenue/net*100:null)),card('Margin lũy kế',sm(margin),'Margin / Revenue: '+pct(revenue?margin/revenue*100:null)),card('Tiền thực nhận',sm(cash),'Cash / Gross: '+pct(gross?cash/gross*100:null)),card('Đã xuất hóa đơn',sm(billed),'Billing / Net: '+pct(net?billed/net*100:null)),card('Tiền còn có thể thu',sm(future),'Exposure / Gross: '+pct(gross?future/gross*100:null)),card('WIP lũy kế',sm(wip),'WIP / Cost: '+pct(cost?wip/cost*100:null)),card('Tổng chi phí',sm(cost),'Không tính chi phí chung')].join('');
+ let deliveryRiskJobs=d.filter(x=>x.dr);
+ let deliveryRiskValue=deliveryRiskJobs.reduce((s,x)=>s+x.backlog,0);
+ $('alerts').innerHTML=`<div class="alert a1">MARGIN RISK<b>${d.filter(x=>x.mr).length}</b><small>job margin âm/thấp</small></div><div class="alert a2">WIP RISK<b>${d.filter(x=>x.wr).length}</b><small>job WIP cần xử lý</small></div><div class="alert a3">REVENUE DAY RISK<b>${d.filter(x=>x.rr).length}</b><small>job billing chậm</small></div><div class="alert a4">CASH EXPOSURE<b>${d.filter(x=>x.cr).length}</b><small>job vượt ngưỡng còn thu</small></div><div class="alert a5">AGED DELIVERY BACKLOG RISK<b>${deliveryRiskJobs.length}</b><small>${sm(deliveryRiskValue)} | ≥ ${t.a} ngày</small></div>`;
+ let f=[['Net contract',net,'#20547e'],['Đã xuất hóa đơn',billed,'#2872ab'],['Revenue ghi nhận',revenue,'#008995'],['Tiền thực nhận',cash,'#15925a']],mx=Math.max(1,...f.map(x=>x[1]));
+ $('funnel').innerHTML=f.map(x=>`<div class="frow"><div class="fname">${x[0]}</div><div class="ftrack"><div class="ffill" style="background:${x[2]};width:${Math.max(18,x[1]/mx*100)}%">${sm(x[1])}</div></div></div>`).join('');
+ let sorted=d.slice().sort((a,b)=>b.score-a.score||b.future-a.future||b.cost-a.cost);
+ $('action').innerHTML=sorted.filter(x=>x.score>0).slice(0,8).map(x=>`<tr><td>${x.job}</td><td>${x.owner||'Unassigned'}</td><td class="num">${x.score}</td><td>${x.flags.map(f=>`<span class="flag">${f}</span>`).join('')}</td></tr>`).join('');
+ let rev=d.filter(x=>x.revenue>0).sort((a,b)=>a.mp-b.mp);
+ bar('marginBars',rev.map(x=>({n:x.job,v:x.mp,d:pct(x.mp),c:x.mp<t.m?'#c73c45':'#15925a',neg:x.mp<t.m})));
+ $('marginException').innerHTML=d.filter(x=>x.revenue===0&&x.cost>0).sort((a,b)=>b.cost-a.cost).map(x=>`<tr><td>${x.job}</td><td class="num">${money(x.cost)}</td><td class="num neg">(${money(Math.abs(x.margin))})</td><td>Chi phí chưa tạo revenue</td></tr>`).join('')||'<tr><td colspan="4">Không có exception</td></tr>';
+ $('profit').innerHTML=d.filter(x=>x.revenue>0||x.cost>0).sort((a,b)=>b.revenue-a.revenue).map(x=>`<tr><td>${x.job}</td><td>${x.owner||'Unassigned'}</td><td class="num">${money(x.revenue)}</td><td class="num">${money(x.pl)}</td><td class="num">${money(x.wip)}</td><td class="num ${x.margin<0?'neg':'pos'}">${x.margin<0?'('+money(Math.abs(x.margin))+')':money(x.margin)}</td><td class="num">${pct(x.mp)}</td></tr>`).join('');
+ let ws=d.filter(x=>x.wip>0).sort((a,b)=>b.wip-a.wip);
+ bar('wipBars',ws.map(x=>({n:x.job,v:x.wip,d:sm(x.wip),c:x.wr?'#c73c45':'#c68412'})));
+ $('wipList').innerHTML=ws.map(x=>`<tr><td>${x.job}</td><td class="num">${money(x.wip)}</td><td class="num">${money(x.billed)}</td><td class="num">${money(x.revenue)}</td><td>${x.wr?badge('High'):badge('Watch')}</td></tr>`).join('');
+ let ds=d.filter(x=>x.rd!=null).sort((a,b)=>b.rd-a.rd), ar=ds.length?ds.reduce((s,x)=>s+x.rd,0)/ds.length:null,arr=ds.map(x=>x.rd).sort((a,b)=>a-b),md=arr.length?(arr[Math.floor((arr.length-1)/2)]+arr[Math.ceil((arr.length-1)/2)])/2:null;
+ $('revCards').innerHTML=[card('Job tính được Rev. Day',ds.length+' job','Có ngày ký và ngày invoice'),card('Revenue Day trung bình',ar==null?'—':ar.toFixed(1)+' ngày','Ngưỡng: '+t.r+' ngày'),card('Revenue Day trung vị',md==null?'—':md+' ngày','Mức điển hình'),card('Job vượt ngưỡng',ds.filter(x=>x.rd>t.r).length+' job',ds[0]?'Cao nhất: '+ds[0].rd+' ngày':'')].join('');
+ bar('revBars',ds.map(x=>({n:x.job,v:x.rd,d:x.rd+' ngày',c:x.rd>t.r?'#c73c45':x.rd>60?'#c68412':'#15925a'})));
+ $('notBilled').innerHTML=d.filter(x=>!x.invoice&&(x.cost>0||x.future>0)).sort((a,b)=>b.cost+b.future-a.cost-a.future).map(x=>`<tr><td>${x.job}</td><td class="num">${money(x.wip)}</td><td class="num">${money(x.cost)}</td><td class="num">${money(x.future)}</td></tr>`).join('')||'<tr><td colspan="4">Không có exception</td></tr>';
+ $('cashCards').innerHTML=[card('Tiền thực nhận',sm(cash),'Cash collected'),card('Tiền còn có thể thu',sm(future),'Future collection'),card('Collection coverage',pct(gross?cash/gross*100:null),'Cash / Gross contract'),card('Job exposure cao',d.filter(x=>x.cr).length+' job','Ngưỡng: '+sm(t.c))].join('');
+ let ce=d.filter(x=>x.future>0).sort((a,b)=>b.future-a.future), tf=val(ce,'future')||1,start=0,stops=[];
+ ce.forEach((x,i)=>{let end=start+x.future/tf*360;stops.push(`${pal[i%pal.length]} ${start}deg ${end}deg`);start=end});
+ $('donut').style.background=`conic-gradient(${stops.join(',')})`; $('legend').innerHTML=ce.map((x,i)=>`<div><span class="dot" style="background:${pal[i%pal.length]}"></span>${x.job}: <b>${sm(x.future)}</b> (${pct(x.future/tf*100)})</div>`).join('');
+ bar('cashBars',ce.map((x,i)=>({n:x.job,v:x.future,d:sm(x.future),c:pal[i%pal.length]})));
+
+ let backlog=Math.max(net-revenue,0), unbilled=Math.max(net-billed,0);
+ let billedNotRevenue=Math.max(billed-revenue,0);
+ let noRevenueContracts=d.filter(x=>x.net>0 && x.revenue===0);
+ let cashWithoutRevenue=noRevenueContracts.reduce((s,x)=>s+x.cash,0);
+ let agedJobs=d.filter(x=>x.dr), agedBacklog=agedJobs.reduce((s,x)=>s+x.backlog,0);
+ let recentBacklog=d.filter(x=>x.net>0&&x.backlog>0&&x.age!=null&&x.age<t.a).reduce((s,x)=>s+x.backlog,0);
+ let agedAverage=agedJobs.length?agedJobs.reduce((s,x)=>s+x.age,0)/agedJobs.length:null;
+ $('deliveryCards').innerHTML=[
+   card('Total Delivery Backlog',sm(backlog),'Net contract – Revenue'),
+   card('Aged Delivery Backlog',sm(agedBacklog),'≥ '+sm(t.d)+' và ≥ '+t.a+' ngày'),
+   card('Aged Backlog Ratio',pct(backlog?agedBacklog/backlog*100:null),'Aged / Total backlog'),
+   card('Newly Signed Backlog',sm(recentBacklog),'Tuổi HĐ dưới '+t.a+' ngày'),
+   card('Unbilled Contract Value',sm(unbilled),'Net contract – Invoiced'),
+   card('Billed but not Revenue',sm(billedNotRevenue),'Đã billing nhưng chưa revenue'),
+   card('Aged Risk Jobs',agedJobs.length+' job','Tuổi TB: '+(agedAverage==null?'—':agedAverage.toFixed(0)+' ngày')),
+   card('Revenue Conversion Rate',pct(net?revenue/net*100:null),'Revenue / Net contract')
+ ].join('');
+ let df=[['Net contract signed',net,'#20547e'],['Đã xuất hóa đơn',billed,'#2872ab'],['Revenue ghi nhận',revenue,'#008995'],['Delivery backlog',backlog,'#c68412']], dmax=Math.max(1,...df.map(x=>x[1]));
+ $('deliveryFunnel').innerHTML=df.map(x=>`<div class="frow"><div class="fname">${x[0]}</div><div class="ftrack"><div class="ffill" style="background:${x[2]};width:${Math.max(18,x[1]/dmax*100)}%">${sm(x[1])}</div></div></div>`).join('');
+ let bd=d.filter(x=>x.net>0&&x.backlog>0).sort((a,b)=>b.backlog-a.backlog);
+ bar('backlogBars',bd.map(x=>({n:x.job+' ('+(x.age==null?'—':x.age+' ngày')+')',v:x.backlog,d:sm(x.backlog),c:x.dr?'#c73c45':'#2872ab',neg:x.dr})));
+ function deliveryPriority(x){
+   if(x.dr && x.revenue===0 && x.backlog>=Math.max(t.d,300000000)) return 'Critical';
+   if(x.dr) return 'High';
+   return 'Watch';
+ }
+ let deliveryExceptions=bd.filter(x=>x.dr);
+ $('deliveryException').innerHTML=deliveryExceptions.map(x=>`<tr><td>${x.job}</td><td>${x.owner||'Unassigned'}</td><td class="num">${money(x.net)}</td><td class="num">${money(x.backlog)}</td><td class="num">${x.age} ngày</td><td class="num">${money(x.cash)}</td><td class="num">${money(x.wip)}</td><td>${badge(deliveryPriority(x))}</td></tr>`).join('')||'<tr><td colspan="8">Không có job vượt đồng thời ngưỡng Backlog và Contract Age.</td></tr>';
+ let ownerMap={};
+ d.filter(x=>x.net>0).forEach(x=>{let o=x.owner||'Unassigned'; if(!ownerMap[o])ownerMap[o]={owner:o,net:0,revenue:0}; ownerMap[o].net+=x.net; ownerMap[o].revenue+=x.revenue;});
+ let ownerDeliveryData=Object.values(ownerMap).map(x=>({...x,conversion:x.net?x.revenue/x.net*100:null,backlog:x.net-x.revenue})).sort((a,b)=>b.backlog-a.backlog);
+ $('ownerDelivery').innerHTML=ownerDeliveryData.map(x=>`<tr><td>${x.owner}</td><td class="num">${money(x.net)}</td><td class="num">${money(x.revenue)}</td><td class="num ${x.conversion<60?'neg':'pos'}">${pct(x.conversion)}</td><td class="num">${money(x.backlog)}</td></tr>`).join('');
+
+ $('matrix').innerHTML=sorted.map(x=>`<tr><td style="text-align:left">${x.job}</td><td style="text-align:left">${x.owner||'Unassigned'}</td><td class="${x.mr?'yes':'no'}">${x.mr?'●':'—'}</td><td class="${x.wr?'yes':'no'}">${x.wr?'●':'—'}</td><td class="${x.rr?'yes':'no'}">${x.rr?'●':'—'}</td><td class="${x.cr?'yes':'no'}">${x.cr?'●':'—'}</td><td class="${x.dr?'yes':'no'}">${x.dr?'●':'—'}</td><td><b>${x.score}</b></td><td>${badge(x.priority)}</td></tr>`).join('');
+ $('register').innerHTML=sorted.map(x=>`<tr><td>${x.id}</td><td>${x.job}</td><td>${x.owner||'Unassigned'}</td><td class="num">${money(x.net)}</td><td class="num">${money(x.revenue)}</td><td class="num">${money(x.cost)}</td><td class="num">${money(x.wip)}</td><td class="num ${x.margin<0?'neg':'pos'}">${x.margin<0?'('+money(Math.abs(x.margin))+')':money(x.margin)}</td><td class="num">${money(x.future)}</td><td class="num">${x.rd==null?'—':x.rd+' ngày'}</td><td class="num">${x.age==null?'—':x.age+' ngày'}</td><td>${x.dr?badge('High'):'—'}</td></tr>`).join('');
+}
+$('owner').innerHTML=['ALL',...new Set(base.map(x=>x.owner||'Unassigned'))].map(x=>`<option value="${x}">${x==='ALL'?'Tất cả owner':x}</option>`).join('');
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab,.page').forEach(x=>x.classList.remove('on'));t.classList.add('on');$(t.dataset.id).classList.add('on')});
+['owner','mlim','wlim','rlim','clim','dlim','alim'].forEach(x=>$(x).addEventListener('input',render));render();
+</script></body></html>

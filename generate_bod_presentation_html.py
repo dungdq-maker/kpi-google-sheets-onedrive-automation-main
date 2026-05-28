@@ -566,7 +566,6 @@ def build_html() -> str:
     <section class="slide">
       <div class="eyebrow">BOD / MANAGER DECK</div>
       <h1>Từ thao tác thủ công đến vận hành chuẩn hóa</h1>
-      <p class="subtitle">Một deck ngắn để show trên màn hình: tại sao bài toán này ra đời, workflow chạy như thế nào, và vì sao tự động hóa tạo ra lợi ích rõ ràng cho chi phí, chất lượng và tốc độ ra quyết định.</p>
       <div class="hero-meta">
         <div class="pill">Mục tiêu tối thượng: tính được chi phí vốn hóa</div>
         <div class="pill">Đầu vào: source rải rác</div>
