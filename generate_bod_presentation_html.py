@@ -3,9 +3,51 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from generate_huong_dan_pdf import latest_xlsx, open_workbook, preview_sheet_image
+
 
 WORK_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = WORK_DIR / "docs" / "thuyet_trinh_bod_manager.html"
+
+
+def build_workbook_assets() -> None:
+    latest_final = latest_xlsx(WORK_DIR / "data" / "output" / "final")
+    if latest_final is None:
+        raise FileNotFoundError("Khong tim thay workbook output moi nhat trong data/output/final.")
+
+    wb = open_workbook(latest_final)
+    note = f"Render từ workbook mới nhất: {latest_final.name}"
+    specs = [
+        ("Huong_dan_Approval", "approval_guide.png", 12, 5, 900),
+        ("Check_IT_CPNS", "check_it_cpns.png", 8, 8, 900),
+        ("Check_Media_Timesheet", "check_media_timesheet.png", 8, 8, 900),
+        ("IT_Approval_Result", "it_approval_result.png", 6, 8, 900),
+        ("Project_Master_Approval_Result", "project_master_approval_result.png", 6, 8, 900),
+        ("Media_Approval_Result", "media_approval_result.png", 6, 8, 900),
+        ("checkpoint data SX", "sx_checkpoint.png", 8, 8, 900),
+        ("Check_SX_Downstream", "sx_downstream.png", 8, 8, 900),
+        ("SX_Approval_Result", "sx_approval_result.png", 6, 8, 900),
+        ("SX_Downstream_Approval_Result", "sx_downstream_approval_result.png", 6, 8, 900),
+        ("Timesheet IT", "timesheet_it.png", 8, 8, 900),
+        ("Timesheet Media", "timesheet_media.png", 8, 8, 900),
+        ("Data media ACCA+CFA+CMA", "data_media_sheet.png", 8, 9, 900),
+        ("Chi phí nhân sự IT", "bod_slide5_cost_it.png", 14, 14, 900),
+        ("3.Vốn hóa", "bod_slide5_von_hoa.png", 10, 12, 900),
+        ("Data media ACCA+CFA+CMA", "bod_slide5_data_media.png", 10, 10, 900),
+        ("Data SX ACCA+CMA", "sx_source_acca.png", 10, 10, 900),
+        ("SX_Allocation_Build", "sx_source_cfa.png", 10, 10, 900),
+        ("Timesheet SX", "sx_source_cma.png", 10, 10, 900),
+    ]
+    for sheet_name, out_name, rows, cols, height in specs:
+        preview_sheet_image(
+            wb,
+            sheet_name,
+            out_name,
+            max_rows=rows,
+            max_cols=cols,
+            note=note,
+            card_height=height,
+        )
 
 
 def section(title: str, eyebrow: str, body: str, notes: str | None = None) -> str:
@@ -507,7 +549,7 @@ def build_html() -> str:
           <div class="tag">Bối cảnh</div>
           <ul class="list">
             <li>Dữ liệu nằm rải rác ở Google Sheets, Excel, OneDrive và các workbook output khác nhau.</li>
-            <li>Làm tay nghĩa là copy/paste, đối chiếu, sửa lại, rồi chờ người khác kiểm tra.</li>
+            <li>Làm thủ công nghĩa là copy/paste, đối chiếu, sửa lại, rồi chờ người khác kiểm tra.</li>
             <li>Cách đó chậm, dễ lệch và rất khó scale khi khối lượng tăng.</li>
             <li>Automation ra đời để biến một quy trình rời rạc thành một quy trình có thể lặp lại và kiểm soát.</li>
           </ul>
@@ -536,7 +578,7 @@ def build_html() -> str:
       <div class="grid-3">
         {card("Sai ở bước phân loại", "IT, Media và SX có logic khác nhau. Khi làm thủ công, người vận hành dễ nhầm dòng nào thuộc cost, dòng nào thuộc project, dòng nào cần loại khỏi vốn hóa.", "Manual risk")}
         {card("Sửa thẳng output", "Khi phát hiện lỗi muộn, cách xử lý thường là sửa trực tiếp trong file kết quả. Cách này nhanh trước mắt nhưng khó audit và dễ mất dấu nguyên nhân gốc.", "Manual risk")}
-        {card("Không biết lỗi lan đến đâu", "Một thay đổi nhỏ ở source có thể chạm tới project master, SX staging, downstream và result sheet. Làm tay rất khó nhìn hết phạm vi tác động.", "Manual risk")}
+        {card("Không biết lỗi lan đến đâu", "Một thay đổi nhỏ ở source có thể chạm tới project master, SX staging, downstream và result sheet. Làm thủ công rất khó nhìn hết phạm vi tác động.", "Manual risk")}
       </div>
       <div class="notes">Câu nói gợi ý: trước automation, rủi ro lớn không nằm ở một công thức đơn lẻ, mà nằm ở việc con người phải nhớ quá nhiều quy tắc khi copy, map và phân loại dữ liệu.</div>
     </section>
@@ -556,53 +598,53 @@ def build_html() -> str:
 
     <section class="slide">
       <div class="eyebrow">ẢNH TỪ FILE MỚI NHẤT</div>
-      <h2>Trước đây: phải mở từng nguồn để tự đối chiếu</h2>
-      <p class="subtitle">Các ảnh này là ảnh sheet riêng lẻ lấy từ file mới nhất: nguồn IT, nguồn Media và Data media. Khi làm thủ công, người vận hành phải tự mở từng nguồn này để kiểm tra mapping trước khi biết dữ liệu nào đủ điều kiện đi tiếp.</p>
+      <h2>Trước đây: phải mở nhiều sheet để tự đối chiếu</h2>
+      <p class="subtitle">Các ảnh này được render trực tiếp từ workbook output mới nhất. Chúng minh họa các sheet người vận hành thường phải mở thủ công để kiểm tra: chi phí nhân sự IT, sheet vốn hóa và Data media.</p>
       <div class="visual-grid">
         <div class="visual-card">
-          <span class="compare-label">Source / IT</span>
-          <h3>Timesheet IT</h3>
-          <img src="generated_assets/timesheet_it.png" alt="Timesheet IT từ workbook mới nhất">
-          <p>Nguồn IT cho biết nhân sự nào ghi nhận thời gian vào project nào, tháng nào và task nào.</p>
+          <span class="compare-label">IT cost</span>
+          <h3>Chi phí nhân sự IT</h3>
+          <img src="generated_assets/bod_slide5_cost_it.png" alt="Chi phí nhân sự IT từ workbook mới nhất">
+          <p>Người vận hành phải kiểm tra tỷ trọng, tháng, nhân sự và project trước khi biết dữ liệu có thể đi tiếp sang vốn hóa hay không.</p>
+        </div>
+        <div class="visual-card">
+          <span class="compare-label">Capitalization</span>
+          <h3>3.Vốn hóa</h3>
+          <img src="generated_assets/bod_slide5_von_hoa.png" alt="Sheet 3.Vốn hóa từ workbook mới nhất">
+          <p>Đây là output quản trị quan trọng: dữ liệu chỉ nên vào đây sau khi source, mapping và checkpoint đã được kiểm soát.</p>
         </div>
         <div class="visual-card">
           <span class="compare-label">Source / Media</span>
-          <h3>Timesheet Media</h3>
-          <img src="generated_assets/timesheet_media.png" alt="Timesheet Media từ workbook mới nhất">
-          <p>Nguồn Media cần đối chiếu người làm task, thời gian, project và BU trước khi tính chi phí.</p>
-        </div>
-        <div class="visual-card">
-          <span class="compare-label">Source / Media master</span>
           <h3>Data media ACCA+CFA+CMA</h3>
-          <img src="generated_assets/data_media_sheet.png" alt="Data media ACCA CFA CMA từ workbook mới nhất">
-          <p>Đây là lớp dữ liệu hỗ trợ mapping cho Media. Nếu master lệch, result cuối cũng có thể lệch.</p>
+          <img src="generated_assets/bod_slide5_data_media.png" alt="Data media ACCA CFA CMA từ workbook mới nhất">
+          <p>Data media cho thấy project, task, số giờ, tháng, người làm và MNV. Đây là ví dụ điển hình của dữ liệu cần chuẩn hóa trước khi tổng hợp.</p>
         </div>
       </div>
       <div class="notes">Điểm cần nói: automation không bắt đầu từ output, mà bắt đầu bằng việc nhìn rõ source nào đang nuôi vào bài toán.</div>
     </section>
 
     <section class="slide">
-      <div class="eyebrow">SOURCE SX INPUT</div>
-      <h2>Nguồn SX trước khi merge vào staging</h2>
-      <p class="subtitle">Đây là ảnh chụp trực tiếp từ các workbook input raw `ACCA.xlsx`, `CFA.xlsx`, `CMA.xlsx`. Điểm quan trọng là SX phải được làm sạch từ nguồn và staging trước khi đi vào workbook output.</p>
+      <div class="eyebrow">SX TRONG WORKBOOK MỚI NHẤT</div>
+      <h2>Nguồn SX sau khi được đưa vào staging</h2>
+      <p class="subtitle">Các ảnh này cũng được render từ workbook output mới nhất. Điểm quan trọng là SX phải được làm sạch ở staging trước khi đi vào Timesheet SX, chi phí nhân sự SX và vốn hóa.</p>
       <div class="visual-grid">
         <div class="visual-card">
-          <span class="compare-label">Input / ACCA</span>
-          <h3>ACCA.xlsx - sheet 0426</h3>
-          <img src="generated_assets/sx_source_acca.png" alt="Nguồn SX ACCA từ input raw">
-          <p>Nguồn ACCA là một phần dữ liệu SX trước khi merge. Nếu tên nhân viên, chương trình hoặc sản phẩm lệch thì staging sẽ phát hiện ở checkpoint.</p>
+          <span class="compare-label">SX staging</span>
+          <h3>Data SX ACCA+CMA</h3>
+          <img src="generated_assets/sx_source_acca.png" alt="Data SX ACCA+CMA từ workbook mới nhất">
+          <p>Đây là lớp staging sau khi dữ liệu SX được đưa về một cấu trúc chung để kiểm tra.</p>
         </div>
         <div class="visual-card">
-          <span class="compare-label">Input / CFA</span>
-          <h3>CFA.xlsx - sheet Apr 26</h3>
-          <img src="generated_assets/sx_source_cfa.png" alt="Nguồn SX CFA từ input raw">
-          <p>Nguồn CFA có cấu trúc workbook riêng. Automation gom về staging để tránh việc người vận hành phải tự copy và tự chuẩn hóa format.</p>
+          <span class="compare-label">SX build</span>
+          <h3>SX_Allocation_Build</h3>
+          <img src="generated_assets/sx_source_cfa.png" alt="SX Allocation Build từ workbook mới nhất">
+          <p>Sheet trung gian giúp chuẩn hóa allocation trước khi downstream chạy công thức.</p>
         </div>
         <div class="visual-card">
-          <span class="compare-label">Input / CMA</span>
-          <h3>CMA.xlsx - employee sheet</h3>
-          <img src="generated_assets/sx_source_cma.png" alt="Nguồn SX CMA từ input raw">
-          <p>Nguồn CMA nằm theo từng sheet nhân sự. Đây là lý do cần merge SX trước khi đưa dữ liệu sang checkpoint và output.</p>
+          <span class="compare-label">SX timesheet</span>
+          <h3>Timesheet SX</h3>
+          <img src="generated_assets/sx_source_cma.png" alt="Timesheet SX từ workbook mới nhất">
+          <p>Timesheet SX là downstream sau staging; nếu staging sai thì phần chi phí và vốn hóa phía sau sẽ sai theo.</p>
         </div>
       </div>
     </section>
@@ -901,6 +943,7 @@ def build_html() -> str:
 
 
 def build_html_file(output_path: Path) -> Path:
+    build_workbook_assets()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(build_html(), encoding="utf-8")
     return output_path
