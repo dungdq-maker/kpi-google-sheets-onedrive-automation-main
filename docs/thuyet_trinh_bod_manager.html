@@ -616,27 +616,27 @@
     </section>
 
     <section class="slide">
-      <div class="eyebrow">SX TRONG WORKBOOK MỚI NHẤT</div>
-      <h2>Nguồn SX sau khi được đưa vào staging</h2>
-      <p class="subtitle">Các ảnh này cũng được render từ workbook output mới nhất. Điểm quan trọng là SX phải được làm sạch ở staging trước khi đi vào Timesheet SX, chi phí nhân sự SX và vốn hóa.</p>
+      <div class="eyebrow">SOURCE SX INPUT</div>
+      <h2>Nguồn SX trước khi merge vào staging</h2>
+      <p class="subtitle">Các ảnh này được export trực tiếp từ workbook input raw `ACCA.xlsx`, `CFA.xlsx`, `CMA.xlsx`. Điểm quan trọng là SX phải được làm sạch từ nguồn và staging trước khi đi vào workbook output.</p>
       <div class="visual-grid">
         <div class="visual-card">
-          <span class="compare-label">SX staging</span>
-          <h3>Data SX ACCA+CMA</h3>
-          <img src="generated_assets/sx_source_acca.png" alt="Data SX ACCA+CMA từ workbook mới nhất">
-          <p>Đây là lớp staging sau khi dữ liệu SX được đưa về một cấu trúc chung để kiểm tra.</p>
+          <span class="compare-label">Input / ACCA</span>
+          <h3>ACCA.xlsx - sheet 0426</h3>
+          <img src="generated_assets/sx_source_acca.png" alt="Nguồn SX ACCA từ input raw">
+          <p>Nguồn ACCA là một phần dữ liệu SX trước khi merge. Nếu tên nhân viên, chương trình hoặc sản phẩm lệch thì staging sẽ phát hiện ở checkpoint.</p>
         </div>
         <div class="visual-card">
-          <span class="compare-label">SX build</span>
-          <h3>SX_Allocation_Build</h3>
-          <img src="generated_assets/sx_source_cfa.png" alt="SX Allocation Build từ workbook mới nhất">
-          <p>Sheet trung gian giúp chuẩn hóa allocation trước khi downstream chạy công thức.</p>
+          <span class="compare-label">Input / CFA</span>
+          <h3>CFA.xlsx - sheet Apr 26</h3>
+          <img src="generated_assets/sx_source_cfa.png" alt="Nguồn SX CFA từ input raw">
+          <p>Nguồn CFA có cấu trúc workbook riêng. Automation gom về staging để tránh việc người vận hành phải tự copy và tự chuẩn hóa format.</p>
         </div>
         <div class="visual-card">
-          <span class="compare-label">SX timesheet</span>
-          <h3>Timesheet SX</h3>
-          <img src="generated_assets/sx_source_cma.png" alt="Timesheet SX từ workbook mới nhất">
-          <p>Timesheet SX là downstream sau staging; nếu staging sai thì phần chi phí và vốn hóa phía sau sẽ sai theo.</p>
+          <span class="compare-label">Input / CMA</span>
+          <h3>CMA.xlsx - employee sheet</h3>
+          <img src="generated_assets/sx_source_cma.png" alt="Nguồn SX CMA từ input raw">
+          <p>Nguồn CMA nằm theo từng sheet nhân sự. Đây là lý do cần merge SX trước khi đưa dữ liệu sang checkpoint và output.</p>
         </div>
       </div>
     </section>

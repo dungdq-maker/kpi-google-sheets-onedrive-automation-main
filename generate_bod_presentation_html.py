@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 from pathlib import Path
-
-from generate_huong_dan_pdf import latest_xlsx, open_workbook, preview_sheet_image
 
 
 WORK_DIR = Path(__file__).resolve().parent
@@ -11,43 +10,12 @@ DEFAULT_OUTPUT = WORK_DIR / "docs" / "thuyet_trinh_bod_manager.html"
 
 
 def build_workbook_assets() -> None:
-    latest_final = latest_xlsx(WORK_DIR / "data" / "output" / "final")
-    if latest_final is None:
-        raise FileNotFoundError("Khong tim thay workbook output moi nhat trong data/output/final.")
-
-    wb = open_workbook(latest_final)
-    note = f"Render từ workbook mới nhất: {latest_final.name}"
-    specs = [
-        ("Huong_dan_Approval", "approval_guide.png", 12, 5, 900),
-        ("Check_IT_CPNS", "check_it_cpns.png", 8, 8, 900),
-        ("Check_Media_Timesheet", "check_media_timesheet.png", 8, 8, 900),
-        ("IT_Approval_Result", "it_approval_result.png", 6, 8, 900),
-        ("Project_Master_Approval_Result", "project_master_approval_result.png", 6, 8, 900),
-        ("Media_Approval_Result", "media_approval_result.png", 6, 8, 900),
-        ("checkpoint data SX", "sx_checkpoint.png", 8, 8, 900),
-        ("Check_SX_Downstream", "sx_downstream.png", 8, 8, 900),
-        ("SX_Approval_Result", "sx_approval_result.png", 6, 8, 900),
-        ("SX_Downstream_Approval_Result", "sx_downstream_approval_result.png", 6, 8, 900),
-        ("Timesheet IT", "timesheet_it.png", 8, 8, 900),
-        ("Timesheet Media", "timesheet_media.png", 8, 8, 900),
-        ("Data media ACCA+CFA+CMA", "data_media_sheet.png", 8, 9, 900),
-        ("Chi phí nhân sự IT", "bod_slide5_cost_it.png", 14, 14, 900),
-        ("3.Vốn hóa", "bod_slide5_von_hoa.png", 10, 12, 900),
-        ("Data media ACCA+CFA+CMA", "bod_slide5_data_media.png", 10, 10, 900),
-        ("Data SX ACCA+CMA", "sx_source_acca.png", 10, 10, 900),
-        ("SX_Allocation_Build", "sx_source_cfa.png", 10, 10, 900),
-        ("Timesheet SX", "sx_source_cma.png", 10, 10, 900),
-    ]
-    for sheet_name, out_name, rows, cols, height in specs:
-        preview_sheet_image(
-            wb,
-            sheet_name,
-            out_name,
-            max_rows=rows,
-            max_cols=cols,
-            note=note,
-            card_height=height,
-        )
+    script = WORK_DIR / "capture_bod_workbook_images.ps1"
+    subprocess.run(
+        ["powershell", "-ExecutionPolicy", "Bypass", "-File", str(script)],
+        cwd=WORK_DIR,
+        check=True,
+    )
 
 
 def section(title: str, eyebrow: str, body: str, notes: str | None = None) -> str:
@@ -656,27 +624,27 @@ def build_html() -> str:
     </section>
 
     <section class="slide">
-      <div class="eyebrow">SX TRONG WORKBOOK MỚI NHẤT</div>
-      <h2>Nguồn SX sau khi được đưa vào staging</h2>
-      <p class="subtitle">Các ảnh này cũng được render từ workbook output mới nhất. Điểm quan trọng là SX phải được làm sạch ở staging trước khi đi vào Timesheet SX, chi phí nhân sự SX và vốn hóa.</p>
+      <div class="eyebrow">SOURCE SX INPUT</div>
+      <h2>Nguồn SX trước khi merge vào staging</h2>
+      <p class="subtitle">Các ảnh này được export trực tiếp từ workbook input raw `ACCA.xlsx`, `CFA.xlsx`, `CMA.xlsx`. Điểm quan trọng là SX phải được làm sạch từ nguồn và staging trước khi đi vào workbook output.</p>
       <div class="visual-grid">
         <div class="visual-card">
-          <span class="compare-label">SX staging</span>
-          <h3>Data SX ACCA+CMA</h3>
-          <img src="generated_assets/sx_source_acca.png" alt="Data SX ACCA+CMA từ workbook mới nhất">
-          <p>Đây là lớp staging sau khi dữ liệu SX được đưa về một cấu trúc chung để kiểm tra.</p>
+          <span class="compare-label">Input / ACCA</span>
+          <h3>ACCA.xlsx - sheet 0426</h3>
+          <img src="generated_assets/sx_source_acca.png" alt="Nguồn SX ACCA từ input raw">
+          <p>Nguồn ACCA là một phần dữ liệu SX trước khi merge. Nếu tên nhân viên, chương trình hoặc sản phẩm lệch thì staging sẽ phát hiện ở checkpoint.</p>
         </div>
         <div class="visual-card">
-          <span class="compare-label">SX build</span>
-          <h3>SX_Allocation_Build</h3>
-          <img src="generated_assets/sx_source_cfa.png" alt="SX Allocation Build từ workbook mới nhất">
-          <p>Sheet trung gian giúp chuẩn hóa allocation trước khi downstream chạy công thức.</p>
+          <span class="compare-label">Input / CFA</span>
+          <h3>CFA.xlsx - sheet Apr 26</h3>
+          <img src="generated_assets/sx_source_cfa.png" alt="Nguồn SX CFA từ input raw">
+          <p>Nguồn CFA có cấu trúc workbook riêng. Automation gom về staging để tránh việc người vận hành phải tự copy và tự chuẩn hóa format.</p>
         </div>
         <div class="visual-card">
-          <span class="compare-label">SX timesheet</span>
-          <h3>Timesheet SX</h3>
-          <img src="generated_assets/sx_source_cma.png" alt="Timesheet SX từ workbook mới nhất">
-          <p>Timesheet SX là downstream sau staging; nếu staging sai thì phần chi phí và vốn hóa phía sau sẽ sai theo.</p>
+          <span class="compare-label">Input / CMA</span>
+          <h3>CMA.xlsx - employee sheet</h3>
+          <img src="generated_assets/sx_source_cma.png" alt="Nguồn SX CMA từ input raw">
+          <p>Nguồn CMA nằm theo từng sheet nhân sự. Đây là lý do cần merge SX trước khi đưa dữ liệu sang checkpoint và output.</p>
         </div>
       </div>
     </section>
