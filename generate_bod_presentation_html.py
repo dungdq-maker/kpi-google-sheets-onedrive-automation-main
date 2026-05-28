@@ -7,6 +7,7 @@ from pathlib import Path
 
 WORK_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = WORK_DIR / "docs" / "thuyet_trinh_bod_manager.html"
+TAB2_FRAGMENT = WORK_DIR / "docs" / "tab2_fragment.html"
 
 
 def build_workbook_assets() -> None:
@@ -16,6 +17,12 @@ def build_workbook_assets() -> None:
         cwd=WORK_DIR,
         check=True,
     )
+
+
+def load_tab2_fragment() -> str:
+    if not TAB2_FRAGMENT.exists():
+        raise FileNotFoundError(f"Missing Tab 2 fragment: {TAB2_FRAGMENT}")
+    return TAB2_FRAGMENT.read_text(encoding="utf-8-sig")
 
 
 def section(title: str, eyebrow: str, body: str, notes: str | None = None) -> str:
@@ -513,10 +520,49 @@ def build_html() -> str:
       .deck-nav {{ bottom: 10px; }}
       h1 {{ max-width: none; }}
     }}
+    .tab-bar {{
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      display: flex;
+      gap: 6px;
+      padding: 10px 16px;
+      background: rgba(3, 7, 18, .92);
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      backdrop-filter: blur(10px);
+    }}
+    .tab-btn {{
+      padding: 8px 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.04);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .02em;
+      cursor: pointer;
+      transition: all .2s ease;
+    }}
+    .tab-btn:hover {{
+      color: var(--text);
+      border-color: rgba(255,255,255,.28);
+    }}
+    .tab-btn.active {{
+      color: var(--gold);
+      border-color: rgba(216,177,93,.45);
+      background: rgba(216,177,93,.10);
+    }}
+    .deck-wrapper {{ display: none; }}
+    .deck-wrapper.active {{ display: block; }}
   </style>
 </head>
 <body>
-  <main class="deck">
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('tab1')" type="button">① Automation &amp; Chi phí vốn hóa</button>
+    <button class="tab-btn" onclick="switchTab('tab2')" type="button">② AI vào Báo cáo Quản trị</button>
+  </div>
+  <div class="deck-wrapper active" id="tab1">
+  <main class="deck" id="deck1">
     <section class="slide">
       <div class="eyebrow">BOD / MANAGER DECK</div>
       <h1>Từ thao tác thủ công đến vận hành chuẩn hóa</h1>
@@ -849,6 +895,8 @@ def build_html() -> str:
       <div class="footer">Mở file HTML này trên trình duyệt để trình chiếu. Nếu muốn, có thể dùng F11 hoặc chế độ toàn màn hình.</div>
     </section>
   </main>
+  </div><!-- /tab1 -->
+  {load_tab2_fragment()}
   <nav class="deck-nav" aria-label="Điều hướng slide">
     <button class="nav-button" id="prevSlide" type="button" aria-label="Slide trước">‹</button>
     <div class="slide-counter" id="slideCounter">1 / 1</div>
@@ -868,29 +916,47 @@ def build_html() -> str:
     const lightboxText = document.getElementById('lightboxText');
     const lightboxCaption = document.getElementById('lightboxCaption');
     const closeButton = lightbox.querySelector('.lightbox-close');
-    const slides = Array.from(document.querySelectorAll('.slide'));
     const prevSlide = document.getElementById('prevSlide');
     const nextSlide = document.getElementById('nextSlide');
     const slideCounter = document.getElementById('slideCounter');
-    let currentSlide = 0;
+    const decks = {{
+      tab1: {{ slides: Array.from(document.querySelectorAll('#deck1 .slide')), current: 0 }},
+      tab2: {{ slides: Array.from(document.querySelectorAll('#deck2 .slide')), current: 0 }}
+    }};
+    let activeTab = 'tab1';
 
     function showSlide(index) {{
-      currentSlide = Math.max(0, Math.min(index, slides.length - 1));
-      slides.forEach((slide, slideIndex) => {{
-        slide.classList.toggle('active', slideIndex === currentSlide);
-        if (slideIndex === currentSlide) slide.scrollTop = 0;
-        if (slideIndex !== currentSlide) {{
+      const deck = decks[activeTab];
+      deck.current = Math.max(0, Math.min(index, deck.slides.length - 1));
+      deck.slides.forEach((slide, slideIndex) => {{
+        slide.classList.toggle('active', slideIndex === deck.current);
+        if (slideIndex === deck.current) slide.scrollTop = 0;
+        if (slideIndex !== deck.current) {{
           slide.querySelectorAll('video').forEach((video) => video.pause());
         }}
       }});
-      prevSlide.disabled = currentSlide === 0;
-      nextSlide.disabled = currentSlide === slides.length - 1;
-      slideCounter.textContent = `${{currentSlide + 1}} / ${{slides.length}}`;
-      window.location.hash = `slide-${{currentSlide + 1}}`;
+      prevSlide.disabled = deck.current === 0;
+      nextSlide.disabled = deck.current === deck.slides.length - 1;
+      slideCounter.textContent = `${{deck.current + 1}} / ${{deck.slides.length}}`;
+      window.location.hash = `${{activeTab}}-slide-${{deck.current + 1}}`;
     }}
 
     function moveSlide(direction) {{
-      showSlide(currentSlide + direction);
+      showSlide(decks[activeTab].current + direction);
+    }}
+
+    function switchTab(tabId) {{
+      if (!decks[tabId]) return;
+      document.querySelectorAll('#' + activeTab + ' video').forEach((video) => video.pause());
+      activeTab = tabId;
+      document.querySelectorAll('.deck-wrapper').forEach((wrapper) => {{
+        wrapper.classList.toggle('active', wrapper.id === tabId);
+      }});
+      document.querySelectorAll('.tab-btn').forEach((button, index) => {{
+        const target = index === 0 ? 'tab1' : 'tab2';
+        button.classList.toggle('active', target === tabId);
+      }});
+      showSlide(decks[activeTab].current);
     }}
 
     function openCardLightbox(card) {{
@@ -959,9 +1025,12 @@ def build_html() -> str:
         moveSlide(-1);
       }}
     }});
-    const initialMatch = window.location.hash.match(/^#slide-(\\d+)$/);
-    const initialSlide = initialMatch ? Number(initialMatch[1]) - 1 : 0;
-    showSlide(initialSlide);
+    const initialMatch = window.location.hash.match(/^#(tab[12])-slide-(\\d+)$/);
+    if (initialMatch) {{
+      activeTab = initialMatch[1];
+      decks[activeTab].current = Number(initialMatch[2]) - 1;
+    }}
+    switchTab(activeTab);
   </script>
 </body>
 </html>
