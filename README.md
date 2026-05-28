@@ -151,6 +151,10 @@ python automate_kpi.py --download --sx-year 2026 --sx-month 5
 python automate_kpi.py --approval-file "data/output/final/von_hoa_20260526_162209.xlsx" --sx-year 2026 --sx-month 5
 ```
 
+Lưu ý: khi approval có liên quan đến SX, luôn truyền rõ `--sx-year` và
+`--sx-month` trong lệnh rerun. Không chạy riêng `--approval-file` cho SX nếu
+chưa chỉ định tháng, vì chương trình sẽ dùng tháng mặc định.
+
 ## Run
 
 ```powershell

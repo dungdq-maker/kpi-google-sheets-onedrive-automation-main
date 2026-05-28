@@ -1874,6 +1874,73 @@ def patch_pivot_refresh_flags(xlsx_path: Path) -> None:
     tmp_path.replace(xlsx_path)
 
 
+def recalculate_workbook_with_excel(xlsx_path: Path) -> bool:
+    if not xlsx_path.exists():
+        return False
+
+    # Excel is the only reliable way here to materialize formula caches in the saved .xlsx.
+    workbook_path = str(xlsx_path.resolve())
+    powershell_script = rf"""
+$ErrorActionPreference = 'Stop'
+$path = '{workbook_path}'
+$excel = $null
+$workbook = $null
+try {{
+    $excel = New-Object -ComObject Excel.Application
+    $excel.Visible = $false
+    $excel.DisplayAlerts = $false
+    $excel.EnableEvents = $false
+    $excel.ScreenUpdating = $false
+    try {{
+        $excel.Calculation = -4105
+    }} catch {{}}
+    $workbook = $excel.Workbooks.Open($path, 0, $false)
+    try {{
+        $excel.CalculateFullRebuild() | Out-Null
+    }} catch {{
+        $excel.CalculateFull() | Out-Null
+    }}
+    $workbook.Save()
+    $workbook.Close($true)
+    $excel.Quit()
+    exit 0
+}} catch {{
+    if ($workbook) {{
+        try {{ $workbook.Close($false) }} catch {{}}
+    }}
+    if ($excel) {{
+        try {{ $excel.Quit() }} catch {{}}
+    }}
+    Write-Error $_
+    exit 1
+}} finally {{
+    if ($workbook) {{
+        try {{ [System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbook) | Out-Null }} catch {{}}
+    }}
+    if ($excel) {{
+        try {{ [System.Runtime.InteropServices.Marshal]::ReleaseComObject($excel) | Out-Null }} catch {{}}
+    }}
+}}
+"""
+
+    try:
+        import subprocess
+
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", powershell_script],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            print(f"  Excel recalc skipped: {result.stderr.strip() or result.stdout.strip() or 'unknown error'}")
+            return False
+        return True
+    except Exception as exc:
+        print(f"  Excel recalc skipped: {exc}")
+        return False
+
+
 def rebuild_sx_consol_sheet(wb, employee_lookup: dict[str, str]) -> None:
     raw_ws = find_sheet(wb, SHEET_SX_TARGET)
     consol_ws = find_sheet(wb, "Data SX consol")
@@ -1993,6 +2060,11 @@ def arrange_workbook_sections(wb) -> None:
             "Check mã nhân viên",
             "Check_Payroll",
             "Huong_dan_Approval",
+            "Khu_vuc_xu_ly_chung",
+            "Check_IT_Cost_Month_Block",
+            "Check_Media_Timesheet",
+            "Check_SX_Downstream",
+            "Check_Vonhoa_Month_Block",
         ],
         "IT": [
             "Timesheet IT",
@@ -2006,6 +2078,7 @@ def arrange_workbook_sections(wb) -> None:
             "Check_IT_CPNS",
             "IT_New_Project_Master",
             "Check_IT_Downstream",
+            "IT_Cost_Block_Approval_Result",
         ],
         "MEDIA": [
             "Timesheet Media",
@@ -2013,7 +2086,7 @@ def arrange_workbook_sections(wb) -> None:
             "Media_CFA",
             "Media_CMA",
             "Media_ACCA",
-            "Check_Media_Timesheet",
+            "Media_Approval_Result",
         ],
         "SX": [
             "Data SX ACCA+CMA",
@@ -2026,7 +2099,6 @@ def arrange_workbook_sections(wb) -> None:
             "SX_Approval_Result",
             "Check_SX_Downstream",
             "SX_Downstream_Approval_Result",
-            "Check_Vonhoa_Month_Block",
             "Vonhoa_Block_Approval_Result",
         ],
     }
@@ -2326,6 +2398,57 @@ def copy_column_block_with_translation(ws, source_start_col: int, target_start_c
                 dst.value = src.value
 
 
+def remap_month_block_external_refs(formula: str, sheet_name: str, month_columns: list[str]) -> str:
+    if sheet_name not in formula:
+        return formula
+
+    pattern = re.compile(
+        rf"('{re.escape(sheet_name)}'!)(\$(?:[A-Z]{{1,3}}))(:(\$(?:[A-Z]{{1,3}})))?"
+    )
+
+    def shift_column(col_ref: str) -> str:
+        col = col_ref.replace("$", "")
+        if col not in month_columns:
+            return col_ref
+        idx = month_columns.index(col)
+        if idx >= len(month_columns) - 1:
+            return col_ref
+        return f"${month_columns[idx + 1]}"
+
+    def repl(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        start = match.group(2)
+        end = match.group(4)
+        if end is not None:
+            shifted_start = shift_column(start)
+            shifted_end = shift_column(end)
+            return f"{prefix}{shifted_start}:{shifted_end}"
+        return f"{prefix}{shift_column(start)}"
+
+    return pattern.sub(repl, formula)
+
+
+def remap_capitalization_month_block_formulas(ws, start_col: int, width: int) -> None:
+    # The copied month block inherits formulas from the previous month block.
+    # Absolute references to month-based cost columns need to move forward as well,
+    # otherwise month 5 still points at month 4 cost columns.
+    month_ref_maps = {
+        "Chi phí nhân sự IT": ["M", "Q", "W", "AI", "AO", "AU", "BA", "BG", "BM", "BS", "BY", "CE", "CK"],
+        "4.1 Chi phí nhân sự SX": ["M", "Q", "U", "Y", "AC", "AG", "AK", "AO", "AS", "AW", "BA", "BE", "BI"],
+    }
+
+    end_col = start_col + width - 1
+    for r in range(1, ws.max_row + 1):
+        for c in range(start_col, end_col + 1):
+            cell = ws.cell(r, c)
+            if not (isinstance(cell.value, str) and cell.value.startswith("=")):
+                continue
+            formula = cell.value
+            formula = remap_month_block_external_refs(formula, "Chi phí nhân sự IT", month_ref_maps["Chi phí nhân sự IT"])
+            formula = remap_month_block_external_refs(formula, "4.1 Chi phí nhân sự SX", month_ref_maps["4.1 Chi phí nhân sự SX"])
+            cell.value = formula
+
+
 def copy_capitalization_month_block(capitalization, month: int) -> str:
     month_col = find_month_label_col(capitalization, month, label_row=1)
     if month_col is not None:
@@ -2340,6 +2463,7 @@ def copy_capitalization_month_block(capitalization, month: int) -> str:
     target_col = source_col + block_width
     copy_column_block_with_translation(capitalization, source_col, target_col, block_width)
     capitalization.cell(1, target_col).value = f"Tháng {month}"
+    remap_capitalization_month_block_formulas(capitalization, target_col, block_width)
     return f"applied: copied month {prev_month} block to month {month}"
 
 
@@ -2347,28 +2471,37 @@ def build_capitalization_month_checkpoint(capitalization, month: int) -> tuple[l
     summary: list[list[Any]] = []
     details: list[list[Any]] = []
 
-    month_col = find_month_label_col(capitalization, month, label_row=1)
-    prev_month = month - 1
-    prev_col = find_month_label_col(capitalization, prev_month, label_row=1)
+    requested_month = month
+    month_col = find_month_label_col(capitalization, requested_month, label_row=1)
+    target_month = requested_month
+    if month_col is not None:
+        target_month = None
+        for candidate in range(requested_month + 1, 13):
+            if find_month_label_col(capitalization, candidate, label_row=1) is None:
+                target_month = candidate
+                break
+    prev_month = target_month - 1 if target_month is not None else None
+    prev_col = find_month_label_col(capitalization, prev_month, label_row=1) if prev_month is not None else None
 
-    status = "OK" if month_col is not None else "MISSING"
+    status = "OK" if target_month is None else "MISSING"
     summary.extend([
-        ["Target month", month],
+        ["Requested month", requested_month],
+        ["Target month", target_month],
         ["Month block status", status],
         ["Previous month available", "YES" if prev_col is not None else "NO"],
-        ["Recommended action", "Copy previous month block" if month_col is None and prev_col is not None else "No action required"],
+        ["Recommended action", "Copy previous month block" if target_month is not None and prev_col is not None else "No action required"],
     ])
 
-    if month_col is None:
+    if target_month is not None:
         details.append([
             SHEET_CAPITALIZATION,
-            month,
-            f"missing month {month} block",
-            f"Copy month {prev_month} block to month {month}",
+            target_month,
+            f"missing month {target_month} block",
+            f"Copy month {prev_month} block to month {target_month}",
             "NO",
             None,
             prev_month,
-            month,
+            target_month,
             None,
         ])
 
@@ -2502,6 +2635,197 @@ def apply_capitalization_month_approvals(wb, approval_file: Path | None) -> None
     write_capitalization_month_result_sheet(wb, results)
 
 
+def build_it_cost_month_checkpoint(cost, month: int) -> tuple[list[list[Any]], list[list[Any]]]:
+    summary: list[list[Any]] = []
+    details: list[list[Any]] = []
+
+    requested_month = month
+    month_col = find_month_label_col(cost, requested_month, label_row=1)
+    target_month = requested_month
+    if month_col is not None and it_cost_month_block_has_formulas(cost, requested_month):
+        target_month = None
+        for candidate in range(requested_month + 1, 13):
+            if not it_cost_month_block_has_formulas(cost, candidate):
+                target_month = candidate
+                break
+
+    prev_month = target_month - 1 if target_month is not None else None
+    prev_col = find_month_label_col(cost, prev_month, label_row=1) if prev_month is not None else None
+
+    status = "OK" if target_month is None else "MISSING"
+    summary.extend([
+        ["Requested month", requested_month],
+        ["Target month", target_month],
+        ["Month block status", status],
+        ["Previous month available", "YES" if prev_col is not None else "NO"],
+        ["Recommended action", "Copy previous month block" if target_month is not None and prev_col is not None else "No action required"],
+    ])
+
+    if target_month is not None:
+        issue = "missing formulas in month block" if month_col is not None else f"missing month {target_month} block"
+        details.append([
+            SHEET_IT_COST,
+            target_month,
+            issue,
+            f"Copy month {prev_month} block to month {target_month}",
+            "NO",
+            None,
+            prev_month,
+            target_month,
+            None,
+        ])
+
+    return summary, details
+
+
+def write_it_cost_month_checkpoint_sheet(wb, summary_rows: list[list[Any]], detail_rows: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, "Check_IT_Cost_Month_Block")
+    next_row = append_table(
+        ws,
+        1,
+        "Summary",
+        ["Metric", "Value"],
+        summary_rows,
+    )
+    append_table(
+        ws,
+        next_row,
+        "Details",
+        ["Sheet", "Month", "Issue", "Recommended action", "Apply?", "Approval notes", "Source month", "Target month", "Status"],
+        detail_rows,
+    )
+    ws.freeze_panes = "A3"
+    for col, width in {"A": 22, "B": 10, "C": 24, "D": 36, "E": 10, "F": 24, "G": 12, "H": 12, "I": 14}.items():
+        ws.column_dimensions[col].width = width
+
+
+def read_it_cost_month_approvals(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        raise SystemExit(f"Approval file not found: {path}")
+
+    wb = load_workbook(path, data_only=False)
+    ws = find_sheet(wb, "Check_IT_Cost_Month_Block")
+    if ws is None:
+        return []
+
+    header_row = find_section_header(ws, "Details")
+    if header_row is None:
+        return []
+    headers = {str(ws.cell(header_row, c).value): c for c in range(1, ws.max_column + 1) if ws.cell(header_row, c).value}
+    required = ["Sheet", "Month", "Issue", "Recommended action", "Apply?"]
+    missing = [name for name in required if name not in headers]
+    if missing:
+        raise SystemExit(f"Approval file is missing required columns in Check_IT_Cost_Month_Block: {missing}")
+
+    approvals: list[dict[str, Any]] = []
+    for r in range(header_row + 1, ws.max_row + 1):
+        marker = ws.cell(r, 1).value
+        if marker in {"Summary", "Details"}:
+            break
+        if not any(ws.cell(r, c).value is not None for c in range(1, ws.max_column + 1)):
+            continue
+        if not approval_value_is_yes(ws.cell(r, headers["Apply?"]).value):
+            continue
+        approvals.append(
+            {
+                "approval_row": r,
+                "sheet": ws.cell(r, headers["Sheet"]).value,
+                "month": month_number(ws.cell(r, headers["Month"]).value),
+                "issue": ws.cell(r, headers["Issue"]).value,
+                "recommended_action": ws.cell(r, headers["Recommended action"]).value,
+                "apply": ws.cell(r, headers["Apply?"]).value,
+                "approval_notes": ws.cell(r, headers.get("Approval notes", 0)).value if headers.get("Approval notes") else None,
+                "source_month": month_number(ws.cell(r, headers.get("Source month", 0)).value) if headers.get("Source month") else None,
+                "target_month": month_number(ws.cell(r, headers.get("Target month", 0)).value) if headers.get("Target month") else None,
+                "status": ws.cell(r, headers.get("Status", 0)).value if headers.get("Status") else None,
+            }
+        )
+    return approvals
+
+
+def write_it_cost_month_result_sheet(wb, results: list[list[Any]]) -> None:
+    ws = reset_sheet(wb, "IT_Cost_Block_Approval_Result")
+    headers = ["Approval row", "Sheet", "Month", "Issue", "Recommended action", "Apply?", "Resolved?", "Resolution note", "Status"]
+    append_table(ws, 1, "IT Cost Month Block Approval Result", headers, results)
+    for col, width in {"A": 14, "B": 22, "C": 10, "D": 24, "E": 36, "F": 10, "G": 12, "H": 40, "I": 80}.items():
+        ws.column_dimensions[col].width = width
+
+
+def it_cost_month_block_has_formulas(cost, month: int) -> bool:
+    start_col = find_month_label_col(cost, month, label_row=1)
+    if start_col is None:
+        return False
+
+    data_cols = range(start_col + 1, min(start_col + 4, cost.max_column + 1))
+    for r in range(3, min(cost.max_row, 80) + 1):
+        for c in data_cols:
+            value = cost.cell(r, c).value
+            if isinstance(value, str) and value.startswith("="):
+                return True
+    return False
+
+
+def copy_it_cost_month_block(cost, month: int) -> str:
+    prev_month = month - 1
+    source_col = find_month_label_col(cost, prev_month, label_row=1)
+    if source_col is None:
+        return f"failed: no template month block found for month {prev_month}"
+
+    target_col = find_month_label_col(cost, month, label_row=1)
+    if target_col is not None and it_cost_month_block_has_formulas(cost, month):
+        return "skipped: month block already exists"
+    if target_col is None:
+        target_col = source_col + 6
+
+    block_width = 6
+    copy_column_block_with_translation(cost, source_col, target_col, block_width)
+    cost.cell(1, target_col).value = f"Tháng {month}"
+    cost.cell(1, target_col + 1).value = month
+    return f"applied: copied month {prev_month} block to month {month}"
+
+
+def apply_it_cost_month_approvals(wb, approval_file: Path | None) -> None:
+    if approval_file is None:
+        return
+    cost = find_sheet(wb, SHEET_IT_COST)
+    if cost is None:
+        raise SystemExit(f"Output workbook does not contain sheet {SHEET_IT_COST}.")
+
+    approvals = read_it_cost_month_approvals(approval_file)
+    results: list[list[Any]] = []
+    for approval in approvals:
+        month = approval.get("month")
+        issue = norm(approval.get("issue"))
+        is_yes = approval_value_is_yes(approval.get("apply"))
+        status = "skipped: Apply? not yes"
+        resolved = "NO"
+        resolution_note = None
+        if is_yes:
+            if month is None:
+                status = "failed: missing month"
+                resolution_note = "Set the target month in the approval workbook"
+            elif "missing month" in issue or "missing formulas" in issue or "incomplete" in issue:
+                status = copy_it_cost_month_block(cost, month)
+                resolved = "YES" if status.startswith("applied:") or status.startswith("skipped:") else "NO"
+                resolution_note = f"Month block for {month} handled"
+            else:
+                status = "skipped: unsupported issue"
+                resolution_note = "Only missing month block issues are supported"
+        results.append([
+            approval.get("approval_row"),
+            approval.get("sheet"),
+            month,
+            approval.get("issue"),
+            approval.get("recommended_action"),
+            approval.get("apply"),
+            resolved,
+            resolution_note,
+            status,
+        ])
+
+    write_it_cost_month_result_sheet(wb, results)
+
+
 def restore_carry_forward_sheets_from_approval_file(wb, approval_file: Path | None) -> None:
     if approval_file is None or not approval_file.exists():
         return
@@ -2515,6 +2839,7 @@ def restore_carry_forward_sheets_from_approval_file(wb, approval_file: Path | No
         # Only carry forward the sheets that are meant to be edited/approved by the user.
         # Generated source/output sheets are rebuilt from the latest inputs on every run.
         "Check_IT_CPNS",
+        "Check_IT_Cost_Month_Block",
         "IT_New_Project_Master",
         "Check_IT_Downstream",
         "Check_Media_Timesheet",
@@ -2699,14 +3024,15 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
     ws = reset_sheet(wb, "Huong_dan_Approval")
     rows = [
         ["Bước", "Workbook approval", "Lệnh / Giá trị", "Hướng dẫn"],
-        [1, str(output_path), "", "Mở workbook này và kiểm tra các sheet Check_Payroll, checkpoint data SX, Check_SX_Downstream và Check_Vonhoa_Month_Block. Khi rerun bằng --approval-file, các sheet approval/checkpoint do người dùng chỉnh sẽ được carry forward; các sheet nguồn và sheet kết quả vẫn được rebuild từ input mới."],
+        [1, str(output_path), "", "Mở workbook này và kiểm tra khu vực chung Khu_vuc_xu_ly_chung cùng các sheet Check_Payroll, Check_IT_CPNS, Check_IT_Cost_Month_Block, Check_Media_Timesheet, checkpoint data SX, Check_SX_Downstream và Check_Vonhoa_Month_Block. Bạn có thể tick YES trực tiếp ngay ở Khu_vuc_xu_ly_chung; khi rerun bằng --approval-file, các sheet approval/checkpoint do người dùng chỉnh sẽ được carry forward và đồng bộ về sheet gốc trước khi apply."],
         [2, str(output_path), "YES / Y / TRUE / 1 / APPLY / APPROVED", "Nhập một trong các giá trị này vào cột Apply? cho những dòng bạn muốn duyệt. Để trống hoặc nhập NO nếu không duyệt."],
         [3, str(output_path), "checkpoint data SX", "Hành động SX source: kiểm tra một sheet duy nhất gồm Summary / Details. Các dòng thiếu MNV sẽ nằm ngay trong Details với Issue = missing MNV; cập nhật sheet Mã nhân viên nếu cần, ghi chú ở cột Approval notes nếu cần, rồi đặt Apply? cho các dòng muốn mang qua file mới."],
         [4, str(output_path), "Check_SX_Downstream", "Hành động SX downstream: kiểm tra Summary / Details để soi dữ liệu rơi ở SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa. Nếu project chưa có trong 1.Danh mục dự án hoặc 3.Vốn hóa thì review theo Recommended action và đặt Apply? để cho phép tạo project mới / thêm vào vốn hóa khi cần."],
-        [5, str(output_path), f"py -3 automate_kpi.py --approval-file \"{output_path}\"", "Sau khi đánh dấu các dòng cần duyệt trong workbook này, chạy lệnh này và trỏ --approval-file về đúng workbook đã chỉnh. Workbook này sẽ là base để carry forward phần approval/checkpoint."],
-        [6, str(approval_file) if approval_file else "(none)", "", "Nếu lần chạy này có dùng approval file, đường dẫn sẽ hiện ở đây. Muốn đổi ý thì sửa file đó hoặc chạy lại không kèm --approval-file. Không dùng output cũ ngẫu nhiên làm nguồn carry forward nữa."],
-        [7, str(output_path), "py -3 automate_kpi.py", "Chạy lại không có --approval-file để bỏ qua toàn bộ phê duyệt và tạo workbook mới từ template / nguồn dữ liệu. Đây là chế độ rebuild sạch, không carry forward state approved."],
-        [8, str(output_path), "IT_Approval_Result / Project_Master_Approval_Result / Downstream_Approval_Result / Media_Approval_Result / SX_Approval_Result / SX_Downstream_Approval_Result / Vonhoa_Block_Approval_Result", "Workbook đầu ra tiếp theo sẽ có các sheet kết quả này để ghi trạng thái applied / skipped / failed."],
+        [5, str(output_path), "Khu_vuc_xu_ly_chung", "Hành động chung: mở khu vực màu xám để jump nhanh sang Check_IT_CPNS, Check_IT_Cost_Month_Block, Check_Media_Timesheet, Check_SX_Downstream và Check_Vonhoa_Month_Block. Có thể duyệt trực tiếp tại đây, rồi rerun để script đẩy Apply? sang sheet gốc tương ứng."],
+        [6, str(output_path), f"py -3 automate_kpi.py --sx-year 2026 --sx-month 4 --approval-file \"{output_path}\"", "Sau khi đánh dấu các dòng cần duyệt trong workbook này, chạy lệnh này và trỏ --approval-file về đúng workbook đã chỉnh. Nếu có duyệt SX, luôn truyền đúng --sx-month của kỳ đang xử lý; không bỏ trống để tránh dùng nhầm tháng mặc định."],
+        [7, str(approval_file) if approval_file else "(none)", "", "Nếu lần chạy này có dùng approval file, đường dẫn sẽ hiện ở đây. Muốn đổi ý thì sửa file đó hoặc chạy lại không kèm --approval-file. Không dùng output cũ ngẫu nhiên làm nguồn carry forward nữa."],
+        [8, str(output_path), "py -3 automate_kpi.py", "Chạy lại không có --approval-file để bỏ qua toàn bộ phê duyệt và tạo workbook mới từ template / nguồn dữ liệu. Đây là chế độ rebuild sạch, không carry forward state approved."],
+        [9, str(output_path), "IT_Approval_Result / Project_Master_Approval_Result / Downstream_Approval_Result / Media_Approval_Result / IT_Cost_Block_Approval_Result / SX_Approval_Result / SX_Downstream_Approval_Result / Vonhoa_Block_Approval_Result", "Workbook đầu ra tiếp theo sẽ có các sheet kết quả này để ghi trạng thái applied / skipped / failed."],
     ]
     for r, row in enumerate(rows, start=1):
         for c, value in enumerate(row, start=1):
@@ -2739,16 +3065,16 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
         [
             4,
             "Áp dụng các dòng đã duyệt",
-            f'py -3 automate_kpi.py --approval-file "{output_path}"',
+            f'py -3 automate_kpi.py --sx-year 2026 --sx-month 4 --approval-file "{output_path}"',
             "Đọc các dòng YES từ workbook approval, áp dụng các thay đổi hợp lệ, rồi tạo workbook output mới.",
-            "Đường dẫn --approval-file phải trỏ đúng workbook bạn đã chỉnh YES.",
+            "Đường dẫn --approval-file phải trỏ đúng workbook bạn đã chỉnh YES. Với SX, đổi --sx-month 4 thành đúng tháng đang approve.",
         ],
         [
             5,
             "Tải nguồn mới và áp dụng phê duyệt trong cùng một lượt",
-            f'py -3 automate_kpi.py --download --approval-file "{output_path}"',
+            f'py -3 automate_kpi.py --download --sx-year 2026 --sx-month 4 --approval-file "{output_path}"',
             "Làm mới raw IT / MEDIA trước, sau đó áp dụng các phê duyệt từ workbook đã chọn.",
-            "Dùng cẩn thận: approval lấy từ workbook cũ, còn dữ liệu được refresh từ nguồn mới nhất.",
+            "Dùng cẩn thận: approval lấy từ workbook cũ, còn dữ liệu được refresh từ nguồn mới nhất. Với SX, phải đổi --sx-month theo đúng kỳ approve.",
         ],
         [
             6,
@@ -2815,6 +3141,13 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
             "SX_Downstream_Approval_Result",
         ],
         [
+            "Khu vực chung",
+            "Khu_vuc_xu_ly_chung",
+            "Gom các issue cần xử lý của IT / SX / Media / Vốn hóa",
+            "Dùng sheet này để mở nhanh tất cả checkpoint quan trọng, đặc biệt là các block tháng và các dòng sửa whitespace / mapping / missing row đang nằm ở IT_CPNS, IT cost, Media và SX.",
+            "Khu_vuc_xu_ly_chung",
+        ],
+        [
             "Vốn hóa / duyệt block tháng",
             "Check_Vonhoa_Month_Block",
             "Giải quyết block tháng bị thiếu trên 3.Vốn hóa",
@@ -2829,6 +3162,346 @@ def write_approval_guide_sheet(wb, output_path: Path, approval_file: Path | None
     ws.freeze_panes = "A3"
     for col, width in {"A": 12, "B": 54, "C": 28, "D": 72, "E": 60}.items():
         ws.column_dimensions[col].width = width
+
+
+def write_common_processing_hub(wb) -> None:
+    ws = reset_sheet(wb, "Khu_vuc_xu_ly_chung")
+    summary_rows, queue_rows = build_common_processing_queue(wb)
+    next_row = append_table(
+        ws,
+        1,
+        "Tổng quan",
+        ["Khu vực", "Sheet", "Mục đích", "Số issue", "Trạng thái", "Mở sheet"],
+        summary_rows,
+    )
+    detail_title_row = next_row + 2
+    append_table(
+        ws,
+        detail_title_row,
+        "Danh sách xử lý",
+        [
+            "Khu vực",
+            "Sheet nguồn",
+            "Section",
+            "Dòng nguồn",
+            "Tháng",
+            "Project / Stage",
+            "Employee / MNV",
+            "Issue",
+            "Recommended action",
+            "Apply?",
+            "Approval notes",
+            "Status",
+            "Open",
+        ],
+        queue_rows,
+    )
+    for r in range(3, 3 + len(summary_rows)):
+        sheet_name = ws.cell(r, 2).value
+        if sheet_name in wb.sheetnames:
+            ws.cell(r, 6).hyperlink = f"#'{sheet_name}'!A1"
+            ws.cell(r, 6).value = "Mở"
+    for r in range(detail_title_row + 2, detail_title_row + 2 + len(queue_rows)):
+        sheet_name = ws.cell(r, 2).value
+        if sheet_name in wb.sheetnames:
+            ws.cell(r, 13).hyperlink = f"#'{sheet_name}'!A1"
+            ws.cell(r, 13).value = "Mở"
+    ws.freeze_panes = "A3"
+    for col, width in {
+        "A": 14,
+        "B": 24,
+        "C": 24,
+        "D": 12,
+        "E": 12,
+        "F": 10,
+        "G": 34,
+        "H": 28,
+        "I": 34,
+        "J": 36,
+        "K": 10,
+        "L": 24,
+        "M": 12,
+    }.items():
+        ws.column_dimensions[col].width = width
+
+
+def build_common_processing_queue(wb) -> tuple[list[list[Any]], list[list[Any]]]:
+    summary_rows: list[list[Any]] = []
+    queue_rows: list[list[Any]] = []
+
+    def add_link_row(area: str, sheet_name: str, purpose: str, issue_count: int) -> None:
+        if sheet_name in wb.sheetnames:
+            summary_rows.append([area, sheet_name, purpose, issue_count, "OPEN" if issue_count else "OK", "Mở"])
+        else:
+            summary_rows.append([area, sheet_name, purpose, issue_count, "MISSING SHEET", "Thiếu sheet"])
+
+    def add_issue_rows(
+        area: str,
+        sheet_name: str,
+        section_name: str,
+        purpose: str,
+        stop_markers: set[str],
+    ) -> None:
+        ws = find_sheet(wb, sheet_name)
+        if ws is None:
+            add_link_row(area, sheet_name, purpose, 0)
+            return
+
+        header_row = find_section_header(ws, section_name)
+        if header_row is None:
+            add_link_row(area, sheet_name, purpose, 0)
+            return
+
+        headers = {str(ws.cell(header_row, c).value): c for c in range(1, ws.max_column + 1) if ws.cell(header_row, c).value}
+        issue_col = headers.get("Issue")
+        action_col = headers.get("Recommended action")
+        apply_col = headers.get("Apply?")
+        notes_col = headers.get("Approval notes")
+        month_col = headers.get("Month")
+        stage_col = headers.get("Stage")
+        project_col = (
+            headers.get("Project")
+            or headers.get("Project name")
+            or headers.get("Project code")
+            or headers.get("Sheet")
+        )
+        employee_col = headers.get("Employee")
+        mnv_col = headers.get("MNV")
+        source_row_col = headers.get("Source row")
+
+        issue_count = 0
+        for r in range(header_row + 1, ws.max_row + 1):
+            marker = ws.cell(r, 1).value
+            if marker in stop_markers:
+                break
+            if not any(ws.cell(r, c).value is not None for c in range(1, ws.max_column + 1)):
+                continue
+
+            issue_value = clean(ws.cell(r, issue_col).value) if issue_col else None
+            action_value = clean(ws.cell(r, action_col).value) if action_col else None
+            if not issue_value and not action_value:
+                continue
+
+            issue_count += 1
+            values = {
+                "section": section_name,
+                "source_row": ws.cell(r, source_row_col).value if source_row_col else r,
+                "month": ws.cell(r, month_col).value if month_col else None,
+                "project": ws.cell(r, project_col).value if project_col else None,
+                "stage": ws.cell(r, stage_col).value if stage_col else None,
+                "employee": ws.cell(r, employee_col).value if employee_col else None,
+                "mnv": ws.cell(r, mnv_col).value if mnv_col else None,
+                "issue": issue_value,
+                "action": action_value,
+                "apply": ws.cell(r, apply_col).value if apply_col else None,
+                "notes": ws.cell(r, notes_col).value if notes_col else None,
+            }
+
+            project_text = values["project"] or values["stage"] or "-"
+            employee_text = values["employee"] or values["mnv"] or "-"
+            if values["section"] == "Source Issues":
+                project_text = values["project"] or "-"
+
+            detail_row = [
+                area,
+                sheet_name,
+                values["section"],
+                values["source_row"],
+                values["month"],
+                project_text,
+                employee_text,
+                values["issue"],
+                values["action"],
+                values["apply"],
+                values["notes"],
+                "READY" if approval_value_is_yes(values["apply"]) else "PENDING",
+                "Mở",
+            ]
+            queue_rows.append(detail_row)
+
+        add_link_row(area, sheet_name, purpose, issue_count)
+
+    add_issue_rows(
+        "IT",
+        "Check_IT_CPNS",
+        "Details",
+        "Whitespace / mismatch giữa Timesheet IT và Chi phí nhân sự IT",
+        {"Employee Month Over 100%", "Summary", "Details"},
+    )
+    add_issue_rows(
+        "IT",
+        "Check_IT_Cost_Month_Block",
+        "Details",
+        "Copy block tháng của Chi phí nhân sự IT",
+        {"Summary", "Details"},
+    )
+    add_issue_rows(
+        "IT",
+        "Check_IT_Downstream",
+        "Details",
+        "Duyệt catalog / vốn hóa IT",
+        {"Summary", "Details"},
+    )
+    add_issue_rows(
+        "IT",
+        "IT_New_Project_Master",
+        "New Project Master Required",
+        "Tạo project master và bổ sung cost row cho dự án IT mới",
+        {"Summary", "New Project Master Required"},
+    )
+    add_issue_rows(
+        "MEDIA",
+        "Check_Media_Timesheet",
+        "Details",
+        "Kiểm tra dữ liệu Media theo tháng",
+        {"Summary", "Details", "Source Issues", "Employee Month Over 100%"},
+    )
+    add_issue_rows(
+        "MEDIA",
+        "Check_Media_Timesheet",
+        "Source Issues",
+        "Sửa dòng nguồn Media bị thiếu công thức / weight",
+        {"Summary", "Details", "Source Issues", "Employee Month Over 100%"},
+    )
+    add_issue_rows(
+        "MEDIA",
+        "Check_Media_Timesheet",
+        "Employee Month Over 100%",
+        "Sửa Media khi total work vượt 100%",
+        {"Summary", "Details", "Source Issues", "Employee Month Over 100%"},
+    )
+    add_issue_rows(
+        "SX",
+        "Check_SX_Downstream",
+        "Details",
+        "Kiểm tra downstream SX và block tháng",
+        {"Summary", "Details"},
+    )
+    add_issue_rows(
+        "COMMON",
+        "Check_Vonhoa_Month_Block",
+        "Details",
+        "Copy block tháng cho 3.Vốn hóa",
+        {"Summary", "Details"},
+    )
+
+    return summary_rows, queue_rows
+
+
+def sync_common_processing_hub_approvals(wb, approval_file: Path | None) -> None:
+    if approval_file is None or not approval_file.exists():
+        return
+
+    try:
+        source_wb = load_workbook(approval_file, data_only=False)
+    except Exception:
+        return
+
+    source_ws = find_sheet(source_wb, "Khu_vuc_xu_ly_chung")
+    if source_ws is None:
+        return
+
+    header_row = find_section_header(source_ws, "Danh sách xử lý")
+    if header_row is None:
+        return
+
+    headers = {str(source_ws.cell(header_row, c).value): c for c in range(1, source_ws.max_column + 1) if source_ws.cell(header_row, c).value}
+    required = ["Sheet nguồn", "Section", "Dòng nguồn", "Apply?"]
+    if any(name not in headers for name in required):
+        return
+
+    for r in range(header_row + 1, source_ws.max_row + 1):
+        marker = source_ws.cell(r, 1).value
+        if marker in {"Summary", "Danh sách xử lý"}:
+            break
+        if not any(source_ws.cell(r, c).value is not None for c in range(1, source_ws.max_column + 1)):
+            continue
+
+        target_sheet_name = clean(source_ws.cell(r, headers["Sheet nguồn"]).value)
+        section_name = clean(source_ws.cell(r, headers["Section"]).value)
+        source_row = source_ws.cell(r, headers["Dòng nguồn"]).value
+        if not target_sheet_name or source_row is None:
+            continue
+
+        try:
+            source_row_int = int(source_row)
+        except Exception:
+            continue
+
+        target_ws = find_sheet(wb, target_sheet_name)
+        if target_ws is None:
+            continue
+        target_header_row = find_section_header(target_ws, section_name) if section_name else None
+        if target_header_row is None:
+            continue
+        target_headers = {str(target_ws.cell(target_header_row, c).value): c for c in range(1, target_ws.max_column + 1) if target_ws.cell(target_header_row, c).value}
+        apply_col = target_headers.get("Apply?")
+        notes_col = target_headers.get("Approval notes")
+        if apply_col is not None:
+            target_ws.cell(source_row_int, apply_col).value = source_ws.cell(r, headers["Apply?"]).value
+        if notes_col is not None and "Approval notes" in headers:
+            target_ws.cell(source_row_int, notes_col).value = source_ws.cell(r, headers["Approval notes"]).value
+
+
+def prepare_synced_approval_file(approval_file: Path | None) -> Path | None:
+    if approval_file is None or not approval_file.exists():
+        return approval_file
+
+    try:
+        wb = load_workbook(approval_file)
+    except Exception:
+        return approval_file
+
+    source_ws = find_sheet(wb, "Khu_vuc_xu_ly_chung")
+    if source_ws is None:
+        return approval_file
+
+    header_row = find_section_header(source_ws, "Danh sách xử lý")
+    if header_row is None:
+        return approval_file
+
+    headers = {str(source_ws.cell(header_row, c).value): c for c in range(1, source_ws.max_column + 1) if source_ws.cell(header_row, c).value}
+    required = ["Sheet nguồn", "Section", "Dòng nguồn", "Apply?"]
+    if any(name not in headers for name in required):
+        return approval_file
+
+    for r in range(header_row + 1, source_ws.max_row + 1):
+        marker = source_ws.cell(r, 1).value
+        if marker in {"Summary", "Danh sách xử lý"}:
+            break
+        if not any(source_ws.cell(r, c).value is not None for c in range(1, source_ws.max_column + 1)):
+            continue
+
+        target_sheet_name = clean(source_ws.cell(r, headers["Sheet nguồn"]).value)
+        section_name = clean(source_ws.cell(r, headers["Section"]).value)
+        source_row = source_ws.cell(r, headers["Dòng nguồn"]).value
+        if not target_sheet_name or source_row is None:
+            continue
+        try:
+            source_row_int = int(source_row)
+        except Exception:
+            continue
+
+        target_ws = find_sheet(wb, target_sheet_name)
+        if target_ws is None:
+            continue
+        target_header_row = find_section_header(target_ws, section_name) if section_name else None
+        if target_header_row is None:
+            continue
+        target_headers = {str(target_ws.cell(target_header_row, c).value): c for c in range(1, target_ws.max_column + 1) if target_ws.cell(target_header_row, c).value}
+        apply_col = target_headers.get("Apply?")
+        notes_col = target_headers.get("Approval notes")
+        if apply_col is not None:
+            target_ws.cell(source_row_int, apply_col).value = source_ws.cell(r, headers["Apply?"]).value
+        if notes_col is not None and "Approval notes" in headers:
+            target_ws.cell(source_row_int, notes_col).value = source_ws.cell(r, headers["Approval notes"]).value
+
+    synced_path = approval_file.with_name(f".{approval_file.stem}.synced{approval_file.suffix}")
+    try:
+        wb.save(synced_path)
+        return synced_path
+    except Exception:
+        return approval_file
 
 
 def read_it_mapping_approvals(path: Path) -> list[dict[str, Any]]:
@@ -3189,7 +3862,7 @@ def fill_cost_month_formulas(cost, row: int, month: int, sum_col: int) -> str:
 
 
 def apply_clean_cost_project_text(cost, approval: dict[str, Any]) -> str:
-    rows = parse_int_list(approval.get("cost_rows_after_clean"))
+    rows = parse_int_list(approval.get("cost_rows_after_clean")) or parse_int_list(approval.get("cost_rows"))
     if not rows:
         return "skipped: no cost row listed"
     changed = []
@@ -4351,10 +5024,10 @@ def build_it_cpns_checkpoint_data(wb) -> tuple[list[list[Any]], list[list[Any]]]
                 ", ".join(dict.fromkeys(record["employees"])) or None,
                 ", ".join(dict.fromkeys(record["employee_cols"])) or None,
                 ", ".join(str(x) for x in dict.fromkeys(record["ts_rows"])) or None,
+                ", ".join(str(x) for x in dict.fromkeys(record["cost_rows"])) or None,
                 record["input_formulas"][0] if record["input_formulas"] else None,
                 record["processed_formulas"][0] if record["processed_formulas"] else None,
-                f"=F{len(detail_rows)+19}-G{len(detail_rows)+19}",
-                ", ".join(str(x) for x in dict.fromkeys(record["cost_rows"])) or None,
+                f"=G{len(detail_rows)+19}-H{len(detail_rows)+19}",
                 record["cost_project_sample"],
                 record["matched_after_clean"],
                 issue_text,
@@ -4536,10 +5209,10 @@ def write_it_cpns_checkpoint_sheet(wb, summary_rows: list[list[Any]], detail_row
             "Employee",
             "Employee column",
             "Timesheet rows",
+            "Cost rows matched after clean",
             "Input value",
             "Processed value",
             "Diff",
-            "Cost rows matched after clean",
             "Cost project sample",
             "Matched after clean",
             "Issue",
@@ -4556,16 +5229,17 @@ def write_it_cpns_checkpoint_sheet(wb, summary_rows: list[list[Any]], detail_row
         "C": 24,
         "D": 16,
         "E": 16,
-        "F": 16,
+        "F": 18,
         "G": 16,
         "H": 16,
-        "I": 18,
-        "J": 50,
-        "K": 18,
-        "L": 28,
+        "I": 16,
+        "J": 18,
+        "K": 50,
+        "L": 18,
         "M": 28,
-        "N": 12,
-        "O": 18,
+        "N": 28,
+        "O": 12,
+        "P": 18,
     }.items():
         ws.column_dimensions[col].width = width
 
@@ -4697,6 +5371,7 @@ def run(
             approval_source_wb = load_workbook(approval_file, data_only=False)
         except Exception as exc:
             print(f"  approval workbook could not be opened for SX lookup: {exc}")
+    approval_file_for_apply = prepare_synced_approval_file(approval_file)
 
     employee_lookup_source = approval_source_wb if approval_source_wb and SHEET_EMPLOYEE in approval_source_wb.sheetnames else template_wb
     employee_lookup = build_employee_lookup(employee_lookup_source)
@@ -4717,7 +5392,8 @@ def run(
 
     wb = load_workbook(output_path)
     capital_values_wb = load_workbook(output_path, data_only=True)
-    restore_carry_forward_sheets_from_approval_file(wb, approval_file)
+    restore_carry_forward_sheets_from_approval_file(wb, approval_file_for_apply)
+    sync_common_processing_hub_approvals(wb, approval_file_for_apply)
     try:
         wb.calculation.calcMode = "auto"
         wb.calculation.fullCalcOnLoad = True
@@ -4756,11 +5432,12 @@ def run(
         print(f"  audit sheet Media_{bu} <- {len(rows)} rows")
 
     if approval_file is not None:
-        apply_it_mapping_approvals(wb, approval_file)
-        apply_project_master_approvals(wb, approval_file)
-        apply_downstream_approvals(wb, approval_file)
-        apply_media_approvals(wb, approval_file)
-        print(f"  applied approvals from {approval_file}")
+        apply_it_mapping_approvals(wb, approval_file_for_apply)
+        apply_project_master_approvals(wb, approval_file_for_apply)
+        apply_downstream_approvals(wb, approval_file_for_apply)
+        apply_media_approvals(wb, approval_file_for_apply)
+        apply_it_cost_month_approvals(wb, approval_file_for_apply)
+        print(f"  applied approvals from {approval_file_for_apply}")
 
     if SHEET_SX_TARGET in wb.sheetnames:
         sx_append_rows, sx_skipped_rows = append_sx_to_template(wb, sx_rows, employee_lookup, sx_year, sx_month)
@@ -4768,7 +5445,7 @@ def run(
     else:
         print(f"  missing sheet: {SHEET_SX_TARGET}")
 
-    apply_sx_approvals(wb, approval_file, employee_lookup)
+    apply_sx_approvals(wb, approval_file_for_apply, employee_lookup)
 
     if SHEET_EMPLOYEE in wb.sheetnames:
         employee_lookup = build_employee_lookup(wb)
@@ -4788,7 +5465,7 @@ def run(
         cap_ws = wb[SHEET_CAPITALIZATION]
         cap_summary, cap_details = build_capitalization_month_checkpoint(cap_ws, sx_month)
         write_capitalization_month_checkpoint_sheet(wb, cap_summary, cap_details)
-        apply_capitalization_month_approvals(wb, approval_file)
+        apply_capitalization_month_approvals(wb, approval_file_for_apply)
         print("  wrote checkpoint sheet: Check_Vonhoa_Month_Block")
 
     if SHEET_SX_DOWNSTREAM_CHECKPOINT in wb.sheetnames:
@@ -4803,7 +5480,7 @@ def run(
         capital_values_wb=capital_values_wb,
     )
     write_sx_downstream_checkpoint_sheet(wb, sx_downstream_summary, sx_downstream_details)
-    apply_sx_downstream_approvals(wb, approval_file)
+    apply_sx_downstream_approvals(wb, approval_file_for_apply)
 
     restored_it_checkpoints = restore_missing_checkpoint_sheets_from_latest_output(
         wb,
@@ -4822,6 +5499,11 @@ def run(
         write_it_new_project_master_sheet(wb, it_new_summary, it_new_details)
         print("  rebuilt checkpoint sheet: IT_New_Project_Master")
 
+    if SHEET_IT_COST in wb.sheetnames:
+        it_cost_summary, it_cost_details = build_it_cost_month_checkpoint(wb[SHEET_IT_COST], sx_month)
+        write_it_cost_month_checkpoint_sheet(wb, it_cost_summary, it_cost_details)
+        print("  wrote checkpoint sheet: Check_IT_Cost_Month_Block")
+
     if SHEET_MEDIA in wb.sheetnames and SHEET_TIMESHEET_MEDIA in wb.sheetnames and SHEET_SALARY_FULLTIME in wb.sheetnames:
         media_summary, media_details, media_source_issues, media_over100 = build_media_checkpoint_data(wb)
         write_media_checkpoint_sheet(wb, media_summary, media_details, media_source_issues, media_over100)
@@ -4838,12 +5520,15 @@ def run(
         print("  rebuilt checkpoint sheet: Check_IT_Downstream")
 
     write_approval_guide_sheet(wb, output_path, approval_file)
-    print("  wrote checkpoint sheets: Check_Payroll, Check_IT_CPNS, IT_New_Project_Master, Check_IT_Downstream, Check_Media_Timesheet, checkpoint data SX, Check_SX_Downstream, Check_Vonhoa_Month_Block")
+    write_common_processing_hub(wb)
+    print("  wrote checkpoint sheets: Check_Payroll, Check_IT_CPNS, IT_New_Project_Master, Check_IT_Cost_Month_Block, Check_IT_Downstream, Check_Media_Timesheet, checkpoint data SX, Check_SX_Downstream, Check_Vonhoa_Month_Block")
 
     arrange_workbook_sections(wb)
 
     wb.save(output_path)
     patch_pivot_refresh_flags(output_path)
+    if recalculate_workbook_with_excel(output_path):
+        print("  recalculated workbook with Excel")
 
     print("[4/4] Writing staging files...")
     try:
@@ -4894,7 +5579,7 @@ def main() -> None:
     parser.add_argument(
         "--approval-file",
         type=Path,
-        help="Workbook containing Check_IT_CPNS approvals. Put YES in Apply? for rows to automate.",
+        help="Workbook containing approval rows. Put YES in Apply? for rows to automate. For SX approvals, pass the matching --sx-year and --sx-month explicitly.",
     )
     args = parser.parse_args()
     run(

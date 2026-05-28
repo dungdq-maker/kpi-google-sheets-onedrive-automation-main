@@ -337,6 +337,29 @@ def build_html() -> str:
       line-height: 1.55;
       font-size: 14px;
     }}
+    .video-panel {{
+      width: min(1180px, 100%);
+      background: var(--panel);
+      border: 1px solid rgba(129,168,255,.25);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+    }}
+    .video-panel video {{
+      display: block;
+      width: 100%;
+      max-height: 66vh;
+      border-radius: 16px;
+      background: #020617;
+      border: 1px solid rgba(255,255,255,.16);
+    }}
+    .video-caption {{
+      margin-top: 12px;
+      color: #c7d2e8;
+      font-size: 15px;
+      line-height: 1.6;
+      text-align: center;
+    }}
     .compare-label {{
       display: inline-flex;
       width: fit-content;
@@ -611,6 +634,20 @@ def build_html() -> str:
     </section>
 
     <section class="slide">
+      <div class="eyebrow">DEMO IT</div>
+      <h2>Video chạy thử: xử lý approval cho IT</h2>
+      <p class="subtitle">Đoạn demo này dùng để trình chiếu nhanh cách người vận hành chạy automation, duyệt các issue IT và kiểm tra kết quả ở workbook output.</p>
+      <div class="video-panel">
+        <video controls preload="metadata" playsinline src="media/automate_it_demo_720p.mp4">
+          Trình duyệt không hỗ trợ phát video trực tiếp. Hãy mở file media/automate_it_demo_720p.mp4.
+        </video>
+        <div class="video-caption">
+          Trọng tâm khi trình bày: IT không sửa trực tiếp ở output cuối. Người vận hành nhìn issue ở checkpoint, approve có kiểm soát, rerun, rồi kiểm tra lại result sheet và các sheet chi phí / vốn hóa.
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
       <div class="eyebrow">CHECKPOINT THEO NGHIỆP VỤ</div>
       <h2>SX có lớp kiểm soát riêng trước khi ghi output</h2>
       <div class="visual-grid two">
@@ -798,6 +835,9 @@ def build_html() -> str:
       slides.forEach((slide, slideIndex) => {{
         slide.classList.toggle('active', slideIndex === currentSlide);
         if (slideIndex === currentSlide) slide.scrollTop = 0;
+        if (slideIndex !== currentSlide) {{
+          slide.querySelectorAll('video').forEach((video) => video.pause());
+        }}
       }});
       prevSlide.disabled = currentSlide === 0;
       nextSlide.disabled = currentSlide === slides.length - 1;

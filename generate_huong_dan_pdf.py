@@ -750,12 +750,13 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
                 "Mở workbook output mới nhất trong data/output/final.",
                 "Mở sheet Huong_dan_Approval để đọc đúng quy trình và lệnh cần chạy, bao gồm cả SX.",
                 "Nếu cần sửa dữ liệu, chỉ đánh YES ở cột Apply? cho dòng thật sự cần xử lý.",
-                "Lưu workbook approval rồi chạy lại bằng tham số --approval-file.",
+                "Lưu workbook approval rồi chạy lại bằng tham số --approval-file. Nếu approval liên quan đến SX, bắt buộc ghi rõ --sx-year và --sx-month của kỳ đang xử lý.",
             ],
             styles["body"],
         )
     )
-    story.append(code_block('py -3 automate_kpi.py --approval-file "duong_dan_toi_file_approval.xlsx"', styles["code"]))
+    story.append(code_block('py -3 automate_kpi.py --sx-year 2026 --sx-month 4 --approval-file "duong_dan_toi_file_approval.xlsx"', styles["code"]))
+    story.append(paragraph("Lưu ý: đổi --sx-month 4 thành đúng tháng SX đang approve. Không nên bỏ --sx-month khi rerun approval SX vì chương trình có thể dùng tháng mặc định.", styles["note"]))
     story.append(PageBreak())
 
     story.append(paragraph("9. Kiểm tra dữ liệu IT", styles["h1"]))
@@ -834,7 +835,7 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
             [paragraph("2", styles["table"]), paragraph("py -3 merge_SX.py --year 2026 --month 4", styles["table"]), paragraph("Sinh file staging SX cho tháng / năm cần chạy. Đổi year và month theo kỳ thực tế.", styles["table"])],
             [paragraph("3", styles["table"]), paragraph("py -3 automate_kpi.py --sx-year 2026 --sx-month 4", styles["table"]), paragraph("Chạy automation để tạo checkpoint data SX, SX_Allocation_Build và Check_SX_Downstream.", styles["table"])],
             [paragraph("4", styles["table"]), paragraph("Mở Huong_dan_Approval và đặt YES ở Apply?", styles["table"]), paragraph("Chỉ đánh YES cho các dòng thực sự muốn duyệt.", styles["table"])],
-            [paragraph("5", styles["table"]), paragraph('py -3 automate_kpi.py --approval-file "duong_dan_toi_file_approval.xlsx"', styles["table"]), paragraph("Áp dụng các dòng đã duyệt và tạo workbook result mới.", styles["table"])],
+            [paragraph("5", styles["table"]), paragraph('py -3 automate_kpi.py --sx-year 2026 --sx-month 4 --approval-file "duong_dan_toi_file_approval.xlsx"', styles["table"]), paragraph("Áp dụng các dòng đã duyệt và tạo workbook result mới. Khi approve SX, luôn đổi --sx-month theo đúng tháng đang xử lý.", styles["table"])],
         ],
         colWidths=[16 * mm, 66 * mm, 88 * mm],
     )
@@ -867,6 +868,7 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
                 "Check_SX_Downstream: sửa các dòng được nêu ở Recommended action cho SX_Allocation_Build, Timesheet SX, 4.1 Chi phí nhân sự SX và 3.Vốn hóa.",
                 "Sau khi sửa xong, đánh YES ở cột Apply? cho những dòng bạn đồng ý duyệt.",
                 "Workbook đầu ra sau khi chạy lại sẽ có SX_Approval_Result và SX_Downstream_Approval_Result để xem trạng thái applied / skipped / failed.",
+                "Ví dụ approve SX tháng 5: py -3 automate_kpi.py --sx-year 2026 --sx-month 5 --approval-file \"duong_dan_toi_file_approval.xlsx\".",
             ],
             styles["body"],
         )
@@ -988,7 +990,7 @@ def build_story(styles: dict[str, ParagraphStyle], assets: dict[str, Path], late
             [paragraph("Điểm yếu", styles["table"]), paragraph("Tác động thực tế", styles["table"])],
             [paragraph("Đường dẫn bảng lương đang hard-code", styles["table"]), paragraph("Phải sửa `PAYROLL_SOURCE_PATH` nếu file OneDrive đổi vị trí hoặc đổi tên.", styles["table"])],
             [paragraph("Phụ thuộc tên sheet cố định", styles["table"]), paragraph("Nếu sheet bị đổi tên như `Timesheet IT`, `Timesheet Media`, `Check_Payroll` thì script có thể không chạy đúng.", styles["table"])],
-            [paragraph("Approval vẫn cần thao tác thủ công", styles["table"]), paragraph("Người dùng phải mở workbook, đánh YES và chạy lại `--approval-file`.", styles["table"])],
+            [paragraph("Approval vẫn cần thao tác thủ công", styles["table"]), paragraph("Người dùng phải mở workbook, đánh YES và chạy lại `--approval-file`. Với SX, lệnh approval phải có cả `--sx-year` và `--sx-month` đúng kỳ.", styles["table"])],
             [paragraph("Phụ thuộc workbook output mới nhất", styles["table"]), paragraph("Nếu thư mục final có nhiều file, người dùng cần tự chọn đúng file gần nhất để tránh nhầm version.", styles["table"])],
             [paragraph("Công thức và sheet nguồn phụ thuộc cấu trúc Excel hiện tại", styles["table"]), paragraph("Nếu workbook nguồn thay layout, mapping và công thức XLOOKUP có thể sai hoặc báo lỗi.", styles["table"])],
         ],
