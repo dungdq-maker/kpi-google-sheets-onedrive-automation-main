@@ -362,6 +362,47 @@ def build_story(styles: dict[str, ParagraphStyle]) -> list:
     )
     story.append(Spacer(1, 2 * mm))
     story.append(closing_box)
+
+    story.append(PageBreak())
+    story.append(p("6. AI và báo cáo quản trị", styles["h1"]))
+    story.extend(
+        [
+            p(
+                "Phần này nối tiếp cùng một tư duy: thay vì làm dashboard Excel thủ công, team dùng AI để tự động hóa việc trình bày dashboard, rà soát điểm bất thường và duy trì báo cáo theo kỳ.",
+                styles["body"],
+            ),
+            p(
+                "Title mới của flow này là: Từ dashboard Excel thủ công đến dashboard AI tự động. Điểm nhấn không chỉ là tốc độ, mà là cách chuyển từ thao tác dựng số sang phân tích và ra quyết định.",
+                styles["body"],
+            ),
+        ]
+    )
+    ai_report_table = make_box(
+        [
+            [p("Mảng", styles["table"]), p("Nội dung cần nhớ", styles["table"]), p("Ý nghĩa", styles["table"])],
+            [p("Lợi ích", styles["table"]), p("Nhận xét tổng quan tự động", styles["table"]), p("Nhân sự chỉ cần đọc lại, chỉnh sửa cho phù hợp với ngữ cảnh - không phải viết từ đầu.", styles["table"])],
+            [p("Tốc độ", styles["table"]), p("Rút ngắn thời gian tạo dashboard và rà soát điểm bất thường", styles["table"]), p("Phần thời gian tiết kiệm được chuyển sang phân tích sâu hơn, nhìn vấn đề ở nhiều khía cạnh hơn.", styles["table"])],
+            [p("Mở rộng", styles["table"]), p("Dashboard KQKD 2026, SAPP Portfolio Dashboard, B2B Portfolio Dashboard", styles["table"]), p("Cùng một workflow có thể áp dụng cho nhiều báo cáo khác nhau.", styles["table"])],
+        ],
+        [28 * mm, 78 * mm, 72 * mm],
+        "#1E3A8A",
+        "#F8FAFC",
+        font_size=8.7,
+    )
+    story.append(ai_report_table)
+    story.append(Spacer(1, 4 * mm))
+    story.extend(
+        [
+            p(
+                "Trước đây, sau khi xử lí dữ liệu thì phần lớn thời gian team sẽ dùng để tạo dashboard và rà soát những điểm bất thường. Nay, việc tạo dashboard được rút ngắn lại, giúp team có nhiều thời gian hơn trong việc phân tích, nhìn nhận vấn đề ở nhiều khía cạnh hơn.",
+                styles["body"],
+            ),
+            p(
+                "Về mặt quản trị, điều quan trọng là dashboard không còn là file trình bày đơn lẻ. Nó trở thành một quy trình có thể lặp lại, có thể mở rộng và có thể chia sẻ cho nhiều báo cáo khác nhau.",
+                styles["body"],
+            ),
+        ]
+    )
     return story
 
 
