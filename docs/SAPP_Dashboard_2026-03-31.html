@@ -1,0 +1,1688 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SAPP Portfolio Dashboard — Q1.2026</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --primary:#1F4E78; --primary-light:#2E75B6; --accent:#3B82F6;
+    --ok:#10B981; --warn:#F59E0B; --danger:#DC2626; --neutral:#6B7280;
+    --bg:#F1F5F9; --card:#FFFFFF; --border:#E5E7EB; --text:#0F172A; --text-light:#64748B;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
+  /* === Layout === */
+  .app { display:grid; grid-template-columns:260px 1fr; min-height:100vh; }
+  .nav { position:sticky; top:0; height:100vh; background:linear-gradient(180deg,#0F172A 0%,#1E293B 100%); color:white; padding:20px 0; overflow-y:auto; }
+  .nav-brand { padding:0 20px 20px; border-bottom:1px solid rgba(255,255,255,0.1); margin-bottom:16px; }
+  .nav-brand h1 { font-size:18px; font-weight:700; margin-bottom:4px; }
+  .nav-brand .sub { font-size:11px; color:#94A3B8; text-transform:uppercase; letter-spacing:0.5px; }
+  .nav-group { padding:10px 0; }
+  .nav-group-title { padding:0 20px 6px; font-size:10px; font-weight:700; color:#64748B; text-transform:uppercase; letter-spacing:1px; }
+  .nav-item { display:block; padding:8px 20px; color:#CBD5E1; text-decoration:none; font-size:13px; border-left:3px solid transparent; transition:all 0.15s; }
+  .nav-item:hover { background:rgba(255,255,255,0.05); color:white; border-left-color:var(--primary-light); }
+  .nav-item .num { display:inline-block; width:32px; color:#475569; font-weight:600; font-size:11px; }
+  .content { padding:32px 40px; max-width:1280px; }
+  /* === Section === */
+  .section { background:var(--card); border-radius:12px; padding:28px; margin-bottom:24px; box-shadow:0 1px 3px rgba(0,0,0,0.04); scroll-margin-top:20px; }
+  .section-header { border-bottom:2px solid var(--border); padding-bottom:14px; margin-bottom:20px; }
+  .section-tag { display:inline-block; background:var(--primary); color:white; padding:3px 10px; border-radius:4px; font-size:11px; font-weight:700; letter-spacing:0.5px; margin-bottom:8px; }
+  .section h2 { font-size:22px; color:var(--primary); font-weight:700; margin-bottom:4px; }
+  .section .framework { font-size:12px; color:var(--text-light); font-style:italic; }
+  /* === KPI cards === */
+  .kpi-strip { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; margin-bottom:24px; }
+  .kpi { background:white; padding:18px; border-radius:10px; border-top:3px solid var(--primary-light); box-shadow:0 1px 3px rgba(0,0,0,0.04); }
+  .kpi.danger { border-top-color:var(--danger); }
+  .kpi.warn { border-top-color:var(--warn); }
+  .kpi.ok { border-top-color:var(--ok); }
+  .kpi-label { font-size:10px; color:var(--text-light); text-transform:uppercase; letter-spacing:0.8px; font-weight:600; margin-bottom:6px; }
+  .kpi-value { font-size:24px; font-weight:700; color:var(--primary); line-height:1.1; }
+  .kpi-value .unit { font-size:12px; color:var(--text-light); font-weight:500; margin-left:3px; }
+  .kpi-sub { font-size:11px; color:var(--text-light); margin-top:6px; }
+  .kpi-delta { font-size:11px; font-weight:600; margin-top:4px; }
+  .kpi-delta.up { color:var(--ok); }
+  .kpi-delta.down { color:var(--danger); }
+  /* === Grid layouts === */
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .chart-box { background:#FAFBFC; padding:16px; border-radius:8px; border:1px solid var(--border); }
+  .chart-box h3 { font-size:13px; color:var(--text); margin-bottom:10px; font-weight:600; }
+  .chart-wrap { position:relative; height:280px; }
+  /* === Tables === */
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { background:#F1F5F9; padding:9px 11px; text-align:left; font-weight:600; color:var(--text); border-bottom:2px solid var(--border); font-size:11px; text-transform:uppercase; letter-spacing:0.4px; }
+  td { padding:9px 11px; border-bottom:1px solid #F1F5F9; }
+  tr:hover td { background:#FAFBFC; }
+  .text-right { text-align:right; }
+  .text-center { text-align:center; }
+  .num-cell { font-variant-numeric:tabular-nums; font-weight:500; }
+  /* === Badges === */
+  .badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:10px; font-weight:700; letter-spacing:0.3px; }
+  .badge-ok { background:#D1FAE5; color:#065F46; }
+  .badge-warn { background:#FEF3C7; color:#92400E; }
+  .badge-danger { background:#FEE2E2; color:#991B1B; }
+  .badge-na { background:#E5E7EB; color:#475569; }
+  .badge-info { background:#DBEAFE; color:#1E40AF; }
+  /* === Action items === */
+  .kanban { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .kanban-col { background:#F8FAFC; border-radius:8px; padding:14px; }
+  .kanban-col h4 { font-size:12px; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.5px; }
+  .kanban-col.high h4 { color:var(--danger); }
+  .kanban-col.med h4 { color:var(--warn); }
+  .kanban-col.low h4 { color:var(--accent); }
+  .action { background:white; padding:12px; border-radius:6px; margin-bottom:10px; border-left:3px solid var(--neutral); font-size:12px; box-shadow:0 1px 2px rgba(0,0,0,0.03); }
+  .action.high { border-left-color:var(--danger); }
+  .action.med { border-left-color:var(--warn); }
+  .action.low { border-left-color:var(--accent); }
+  .action-title { font-weight:600; font-size:13px; margin-bottom:4px; }
+  .action-meta { font-size:10px; color:var(--text-light); margin-top:6px; }
+  /* === Misc === */
+  .pos { color:var(--ok); font-weight:600; }
+  .neg { color:var(--danger); font-weight:600; }
+  .muted { color:var(--text-light); }
+  .alert { padding:12px 16px; border-radius:8px; font-size:13px; margin:12px 0; }
+  .alert.info { background:#EFF6FF; color:#1E40AF; border-left:4px solid var(--accent); }
+  .alert.warn { background:#FFFBEB; color:#92400E; border-left:4px solid var(--warn); }
+  .alert.danger { background:#FEF2F2; color:#991B1B; border-left:4px solid var(--danger); }
+  .placeholder { background:#F8FAFC; border:2px dashed var(--border); border-radius:8px; padding:30px; text-align:center; color:var(--text-light); font-size:13px; }
+  .formula { font-family:"SF Mono",Monaco,"Cascadia Code",Consolas,monospace; background:#F8FAFC; padding:8px 12px; border-radius:4px; font-size:12px; color:var(--primary); border:1px solid var(--border); }
+  .src { font-size:11px; color:var(--text-light); margin-top:6px; font-style:italic; }
+  hr { border:none; border-top:1px solid var(--border); margin:16px 0; }
+  /* === Footer === */
+  .footer { background:#0F172A; color:#94A3B8; padding:24px 32px; border-radius:12px; margin-top:24px; font-size:12px; }
+  .footer strong { color:white; }
+  .disclaimer-final { background:#FFFBEB; border-left:4px solid var(--warn); padding:14px 18px; border-radius:6px; font-size:12px; color:#78350F; margin:16px 0; }
+  /* === Header === */
+  .header { background:linear-gradient(135deg,var(--primary) 0%,var(--primary-light) 100%); color:white; padding:32px 40px; border-radius:12px; margin-bottom:24px; }
+  .header h1 { font-size:28px; font-weight:700; margin-bottom:6px; }
+  .header .meta { font-size:13px; opacity:0.85; }
+  .header .period { display:inline-block; background:rgba(255,255,255,0.18); padding:6px 14px; border-radius:20px; margin-top:14px; font-size:12px; font-weight:600; }
+  @media (max-width:1024px) { .app { grid-template-columns:1fr; } .nav { position:relative; height:auto; } .kpi-strip { grid-template-columns:repeat(2,1fr); } .grid-2,.grid-3,.kanban { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ============ NAV ============ -->
+<nav class="nav">
+  <div class="nav-brand">
+    <h1>SAPP Portfolio</h1>
+    <div class="sub">Q1.2026 — Institutional Dashboard</div>
+  </div>
+  <div class="nav-group">
+    <div class="nav-group-title">Tier 1 — Core</div>
+    <a href="#d1" class="nav-item"><span class="num">D1</span>Executive Summary</a>
+    <a href="#d2" class="nav-item"><span class="num">D2</span>Asset Allocation & Drift</a>
+    <a href="#d3" class="nav-item"><span class="num">D3</span>IPS Compliance</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-group-title">Tier 2 — Performance & Risk</div>
+    <a href="#d4" class="nav-item"><span class="num">D4</span>Brinson-Fachler</a>
+    <a href="#d5" class="nav-item"><span class="num">D5</span>Risk Analytics</a>
+    <a href="#d6" class="nav-item"><span class="num">D6</span>Liquidity Profile</a>
+    <a href="#d7" class="nav-item"><span class="num">D7</span>Counterparty Risk</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-group-title">Tier 3 — Asset Class</div>
+    <a href="#d8" class="nav-item"><span class="num">D8</span>Business Valuation</a>
+    <a href="#d9" class="nav-item"><span class="num">D9</span>Public Equity</a>
+    <a href="#d10" class="nav-item"><span class="num">D10</span>Real Estate</a>
+    <a href="#d11" class="nav-item"><span class="num">D11</span>ALM (FI + Loans)</a>
+    <a href="#d12" class="nav-item"><span class="num">D12</span>Private Equity</a>
+  </div>
+  <div class="nav-group">
+    <div class="nav-group-title">Tier 4 — Governance</div>
+    <a href="#d13" class="nav-item"><span class="num">D13</span>Action Items</a>
+    <a href="#d14" class="nav-item"><span class="num">D14</span>Methodology</a>
+  </div>
+</nav>
+
+<!-- ============ CONTENT ============ -->
+<main class="content">
+
+<div class="header">
+  <h1>SAPP Portfolio Dashboard</h1>
+  <div class="meta">Báo cáo danh mục đầu tư đa lớp tài sản — Institutional Grade</div>
+  <div class="period">Kỳ: Q1.2026 (chốt 2026-03-31) • Generated 2026-05-28 • Báo cáo định kỳ theo Playbook v2.3</div>
+</div>
+
+<!-- ===================== D1: Executive Summary ===================== -->
+<section id="d1" class="section">
+  <div class="section-header">
+    <span class="section-tag">D1 • TIER 1 CORE</span>
+    <h2>Executive Summary</h2>
+    <div class="framework">Tham chiếu: Yale Endowment Annual Report format • CalPERS Investment Performance Summary</div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi">
+      <div class="kpi-label">AUM (Tổng TS)</div>
+      <div class="kpi-value">194.92<span class="unit">tỷ</span></div>
+      <div class="kpi-sub">Assets Under Management</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">NAV</div>
+      <div class="kpi-value">178.08<span class="unit">tỷ</span></div>
+      <div class="kpi-sub">Net Asset Value (post-reconciliation)</div>
+    </div>
+    <div class="kpi warn">
+      <div class="kpi-label">CAGR Hiện tại</div>
+      <div class="kpi-value">7.58<span class="unit">%</span></div>
+      <div class="kpi-delta down">↓ Target 15%</div>
+    </div>
+    <div class="kpi warn">
+      <div class="kpi-label">Debt / NAV</div>
+      <div class="kpi-value">9.45<span class="unit">%</span></div>
+      <div class="kpi-sub">Đòn bẩy thấp — OK</div>
+    </div>
+    <div class="kpi danger">
+      <div class="kpi-label">IPS Score</div>
+      <div class="kpi-value">7<span class="unit">/14</span></div>
+      <div class="kpi-sub">5 vi phạm + 2 chờ data</div>
+    </div>
+  </div>
+
+  </div>
+
+
+
+  <!-- Returns Table -->
+  <h3 style="margin:0 0 10px;font-size:14px;">Tỷ suất sinh lời theo thời gian</h3>
+  <table style="margin-bottom:20px;">
+    <thead><tr>
+      <th>Kỳ</th><th class="text-right">MTD</th><th class="text-right">QTD</th><th class="text-right">YTD</th>
+      <th class="text-right">1-Year</th><th class="text-right">3-Year (CAGR)</th><th class="text-right">SI (Since Inception)</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><strong>Portfolio (Total)</strong></td><td class="text-right">N/A</td><td class="text-right">N/A</td><td class="text-right">N/A</td><td class="text-right pos">+7.58%</td><td class="text-right">N/A</td><td class="text-right">N/A</td></tr>
+      <tr><td>Benchmark CAGR target (IPS §2)</td><td class="text-right">+1.17%</td><td class="text-right">+3.56%</td><td class="text-right">+5.86%</td><td class="text-right">+15.00%</td><td class="text-right">+15.00%</td><td class="text-right">+15.00%</td></tr>
+      <tr><td>Excess return vs target</td><td class="text-right muted">—</td><td class="text-right muted">—</td><td class="text-right muted">—</td><td class="text-right neg">-7.42pp</td><td class="text-right muted">—</td><td class="text-right muted">—</td></tr>
+    </tbody>
+  </table>
+  <div class="src" style="margin-bottom:20px;">Các kỳ MTD/QTD/YTD cần ≥2 snapshot trở lên. Hiện chỉ có Q1.2026 baseline.</div>
+
+  <div class="grid-3">
+    <div class="chart-box">
+      <h3>CAGR Progress vs Target 15%</h3>
+      <div class="chart-wrap"><canvas id="cagrGauge"></canvas></div>
+      <div class="src">Gauge chart — hiện đạt 50.5% target 2026.</div>
+    </div>
+    <div class="chart-box">
+      <h3>Sharpe & Sortino (cần history)</h3>
+      <div style="display:flex;flex-direction:column;justify-content:center;height:280px;padding:20px;">
+        <div style="margin-bottom:14px;">
+          <div class="kpi-label">Sharpe Ratio</div>
+          <div class="kpi-value">N/A</div>
+          <div class="src">= (Rₚ − R_f) / σₚ. Cần ≥12 kỳ.</div>
+        </div>
+        <div style="margin-bottom:14px;">
+          <div class="kpi-label">Sortino Ratio</div>
+          <div class="kpi-value">N/A</div>
+          <div class="src">= (Rₚ − R_target) / σ_downside.</div>
+        </div>
+        <div>
+          <div class="kpi-label">Calmar Ratio</div>
+          <div class="kpi-value">N/A</div>
+          <div class="src">= CAGR / |Max DD|.</div>
+        </div>
+      </div>
+    </div>
+    <div class="chart-box">
+      <h3>Asset Class Heat Map</h3>
+      <div class="chart-wrap"><canvas id="heatMap"></canvas></div>
+      <div class="src">Unrealized P/L (triệu VND).</div>
+    </div>
+  </div>
+
+  <div class="chart-box" style="margin-top:20px;">
+    <h3>AUM Evolution (Stacked theo lớp tài sản)</h3>
+    <div class="chart-wrap"><canvas id="navEvolution"></canvas></div>
+    <div class="src">Baseline Q1.2026. Khi có thêm snapshot T04/T05, sẽ vẽ stacked bar đầy đủ. Đường nét đứt = CAGR 15% target.</div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Top Highlights & Lowlights</h3>
+  <div class="grid-2">
+    <table>
+      <thead><tr><th>✅ Top 5 HIGHLIGHTS</th><th class="text-right">Tác động</th></tr></thead>
+      <tbody>
+        <tr><td>Lakeside Đà Nẵng — lãi 38% (cao nhất danh mục BĐS)</td><td class="text-right pos">+1.62 tỷ</td></tr>
+        <tr><td>Habitat Bình Dương — CAGR 42%</td><td class="text-right pos">+1.03 tỷ</td></tr>
+        <tr><td>ACB — lãi +38.99%, CAGR 30%</td><td class="text-right pos">+69 tr</td></tr>
+        <tr><td>TCB — lãi +27.65%</td><td class="text-right pos">+133 tr</td></tr>
+        <tr><td>Đòn bẩy thấp 18.55% Debt/NAV (chuẩn FO &lt;30%)</td><td class="text-right pos">—</td></tr>
+      </tbody>
+    </table>
+    <table>
+      <thead><tr><th>⚠️ Top 5 LOWLIGHTS</th><th class="text-right">Tác động</th></tr></thead>
+      <tbody>
+        <tr><td>FPT — lỗ -27%, vượt ngưỡng IPS §7 phải báo BĐH</td><td class="text-right neg">-806 tr</td></tr>
+        <tr><td>Liquidity 30d 17.94% Pool B NET vs IPS v2 ≥50% Pool B</td><td class="text-right neg">Thiếu 23.11 tỷ</td></tr>
+        <tr><td>Private Equity 0% vs IPS target 20%</td><td class="text-right neg">Gap 32.88 tỷ</td></tr>
+        <tr><td>8/9 sổ TGCKH bị cầm cố — khả dụng chỉ 0.16 tỷ</td><td class="text-right neg">-99% khả dụng</td></tr>
+        <tr><td>F-Stock ủy thác lỗ -10% (sub-benchmark)</td><td class="text-right neg">-99 tr</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ===================== D2: Asset Allocation & Drift ===================== -->
+
+  <div class="alert info" style="margin-bottom:20px;">
+    <strong>📐 Methodology — tính theo NAV (đã trừ nợ):</strong>
+    <ul style="margin:8px 0 0 24px;">
+      <li><strong>Pool A</strong> = Business value (đã net deferred revenue) = <strong>99.75 tỷ → 56.01% NAV</strong> (target 60%, range 50-70% → OK)</li>
+      <li><strong>Pool B NET</strong> = (TGCKH + Bonds + Stocks + CCQ + BĐS gross) − Nợ vay BĐS 16.83 = <strong>72.10 tỷ → 40.49% NAV</strong> (target 25%, range 20-30% → VƯỢT Max)</li>
+      <li><strong>Pool C</strong> = M&A/PE = <strong>0 tỷ → 0% NAV</strong> (target 15% → DƯỚI Min)</li>
+      <li><strong>Buffer</strong> = Cash & TGKKH = <strong>6.23 tỷ → 3.50% NAV</strong> (max 20% → OK)</li>
+      <li><strong>Tổng = NAV = 178.08 tỷ = 100%</strong> ✓</li>
+    </ul>
+    <strong>Pool B sub-allocation:</strong> Trong Pool B target 25% NAV, chia tiếp theo % Pool B: TGCKH 10% (= 2.5% NAV), Bonds 5% (= 1.25%), CP tự doanh 20% (= 5%), CP ủy thác 10% (= 2.5%), CCQ 15% (= 3.75%), BĐS 40% (= 10%). Tổng Pool B = 100% Pool B = 25% NAV.
+  </div>
+
+<section id="d2" class="section">
+  <div class="section-header">
+    <span class="section-tag">D2 • TIER 1 CORE</span>
+    <h2>Asset Allocation & Drift Analysis</h2>
+    <div class="framework">Tham chiếu: CFA L3 Asset Allocation + Portfolio Construction • Norway GPFG Asset Allocation Report</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-box">
+      <h3>Phân bổ hiện tại vs SAA (Strategic Asset Allocation)</h3>
+      <div class="chart-wrap"><canvas id="allocCompare"></canvas></div>
+    </div>
+    <div class="chart-box">
+      <h3>Active Weight (Drift vs Target)</h3>
+      <div class="chart-wrap"><canvas id="activeWeight"></canvas></div>
+      <div class="src">Diverging bar — đỏ = underweight, xanh = overweight. IPS yêu cầu drift &gt;5% phải rebalance.</div>
+    </div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Drift Table với Tolerance Bands</h3>
+  <table>
+    <thead><tr>
+      <th>Lớp tài sản</th>
+      <th class="text-right">Hiện tại</th>
+      <th class="text-right">SAA Target</th>
+      <th class="text-right">Tolerance</th>
+      <th class="text-right">Active Weight</th>
+      <th class="text-right">Gap (tỷ VND)</th>
+      <th class="text-center">Trạng thái</th>
+      <th>Hành động đề xuất</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>Business (operating)</td><td class="text-right num-cell">56.01%</td><td class="text-right">60%</td><td class="text-right">50-70%</td><td class="text-right neg">-3.99%</td><td class="text-right neg">-7.10</td><td class="text-center"><span class="badge badge-ok">OK</span></td><td>Trong range, sát min — có thể tăng Business</td></tr>
+      <tr><td>Cổ phiếu niêm yết</td><td class="text-right num-cell">3.18%</td><td class="text-right">10%</td><td class="text-right">5-15%</td><td class="text-right neg">-6.64%</td><td class="text-right neg">-10.92</td><td class="text-center"><span class="badge badge-danger">UNDER MIN</span></td><td>Tăng tỷ trọng ~10.9 tỷ trong 2 quý</td></tr>
+      <tr><td>Bất động sản</td><td class="text-right num-cell">35.18%</td><td class="text-right">35%</td><td class="text-right">30-40%</td><td class="text-right pos">+0.18%</td><td class="text-right pos">+0.30</td><td class="text-center"><span class="badge badge-ok">ON TARGET</span></td><td>Giữ nguyên, không rebalance</td></tr>
+      <tr><td>Tiền gửi CK hạn</td><td class="text-right num-cell">7.09%</td><td class="text-right">10%</td><td class="text-right">15-20%</td><td class="text-right neg">-2.91% (vs target)</td><td class="text-right neg">-13.06</td><td class="text-center"><span class="badge badge-danger">UNDER MIN</span></td><td>Cần confirm IPS conflict (target 10 vs range 15-20)</td></tr>
+      <tr><td>Private Equity</td><td class="text-right num-cell">0.00%</td><td class="text-right">20%</td><td class="text-right">15-25%</td><td class="text-right neg">-20.00%</td><td class="text-right neg">-32.88</td><td class="text-center"><span class="badge badge-danger">UNDER MIN</span></td><td>Triển khai Quỹ M&A SAPP — kế hoạch IPS §12</td></tr>
+      <tr><td>Cash & TGKKH</td><td class="text-right num-cell">3.20%</td><td class="text-right">&lt;2 tháng CP</td><td class="text-right">&lt;20%</td><td class="text-right">N/A</td><td class="text-right">OK</td><td class="text-center"><span class="badge badge-ok">OK</span></td><td>Buffer hợp lý</td></tr>
+    </tbody>
+  </table>
+  <div class="alert info">
+    <strong>Lưu ý IPS §4:</strong> SAA hiện chỉ áp dụng cho danh mục đầu tư tài chính (NAV trừ Business operating = 64.67 tỷ). Tính tỷ trọng theo NAV không trừ Business sẽ luôn ra under-target vì Business chiếm 51%. Khuyến nghị: tính lại SAA trên base NAV-Investment-Only.
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">SAA vs TAA vs Actual (3 lớp phân bổ)</h3>
+  <div class="chart-box">
+    <div class="chart-wrap" style="height:380px;"><canvas id="bulletChart"></canvas></div>
+    <div class="src">Bullet chart kiểu Stephen Few — Diamond ◆ = Actual, Line = Target SAA, Range = Tolerance band, Triangle = TAA (Tactical override). Khi Diamond ra ngoài tolerance band → trigger rebalance.</div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">SAA vs TAA Detail (MPT framework)</h3>
+  <table>
+    <thead><tr>
+      <th>Lớp tài sản</th>
+      <th class="text-right">SAA (Strategic)</th>
+      <th class="text-right">TAA (Tactical)</th>
+      <th class="text-right">Actual</th>
+      <th class="text-right">Drift vs SAA</th>
+      <th class="text-center">Trigger?</th>
+      <th>Lý do TAA override (nếu có)</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>Cổ phiếu niêm yết</td><td class="text-right">10%</td><td class="text-right">8%</td><td class="text-right">3.36%</td><td class="text-right neg">-6.64pp</td><td class="text-center"><span class="badge badge-danger">REBALANCE</span></td><td>TAA thấp hơn SAA vì market đang volatile — chờ entry tốt hơn</td></tr>
+      <tr><td>Bất động sản</td><td class="text-right">35%</td><td class="text-right">35%</td><td class="text-right">35.18%</td><td class="text-right">+0.18pp</td><td class="text-center"><span class="badge badge-ok">HOLD</span></td><td>Không override</td></tr>
+      <tr><td>Tiền gửi CK hạn</td><td class="text-right">10%</td><td class="text-right">15%</td><td class="text-right">7.09%</td><td class="text-right neg">-2.91pp</td><td class="text-center"><span class="badge badge-danger">REBALANCE</span></td><td>TAA cao hơn SAA vì cần boost liquidity</td></tr>
+      <tr><td>Private Equity</td><td class="text-right">20%</td><td class="text-right">15%</td><td class="text-right">0.00%</td><td class="text-right neg">-20pp</td><td class="text-center"><span class="badge badge-danger">REBALANCE</span></td><td>TAA dưới SAA vì pipeline M&A chưa sẵn sàng</td></tr>
+      <tr><td>Cash & TGKKH</td><td class="text-right">2%</td><td class="text-right">2%</td><td class="text-right">3.20%</td><td class="text-right">+1.20pp</td><td class="text-center"><span class="badge badge-ok">HOLD</span></td><td>Không override</td></tr>
+    </tbody>
+  </table>
+  <div class="alert info">
+    <strong>SAA vs TAA — CFA L3 framework:</strong> SAA là chiến lược dài hạn (3-5 năm) dựa trên risk capacity + return goal. TAA là tactical override ngắn hạn (1-12 tháng) tận dụng cơ hội thị trường, nhưng phải nằm trong tolerance band. SAPP hiện đang dùng SAA = TAA cho hầu hết các lớp — chưa active tactical management.
+  </div>
+</section>
+
+<!-- ===================== D3: IPS Compliance Scorecard ===================== -->
+<section id="d3" class="section">
+  <div class="section-header">
+    <span class="section-tag">D3 • TIER 1 CORE</span>
+    <h2>IPS Compliance Scorecard</h2>
+    <div class="framework">Tham chiếu: CFA L3 Investment Policy Statement (RRTTLLU framework) • CalPERS Policy Compliance Review</div>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th>#</th><th>Rule</th><th>IPS §</th><th class="text-right">Threshold</th><th class="text-right">Hiện tại</th><th class="text-center">Status</th><th>Comment</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>1</td><td>SAA: Stocks 5-15%</td><td>§4</td><td class="text-right">5-15%</td><td class="text-right">3.36%</td><td class="text-center"><span class="badge badge-danger">FAIL</span></td><td>Under min 1.64pp</td></tr>
+      <tr><td>2</td><td>SAA: BĐS 30-40%</td><td>§4</td><td class="text-right">30-40%</td><td class="text-right">35.18%</td><td class="text-center"><span class="badge badge-ok">PASS</span></td><td>OK</td></tr>
+      <tr><td>3</td><td>SAA: TGCKH 15-20%</td><td>§4</td><td class="text-right">15-20%</td><td class="text-right">7.09%</td><td class="text-center"><span class="badge badge-danger">FAIL</span></td><td>Under min 7.91pp (conflict target 10 vs range)</td></tr>
+      <tr><td>4</td><td>SAA: PE/M&A 15-25%</td><td>§4</td><td class="text-right">15-25%</td><td class="text-right">0.00%</td><td class="text-center"><span class="badge badge-danger">FAIL</span></td><td>Under min 15pp</td></tr>
+      <tr><td>5</td><td>Single stock cap ≤20% portfolio CP</td><td>§4</td><td class="text-right">≤20%</td><td class="text-right">FPT 33.3%</td><td class="text-center"><span class="badge badge-danger">FAIL</span></td><td>FPT chiếm 33.3% danh mục CP (2.18/6.54)</td></tr>
+      <tr><td>6</td><td>Single sector cap ≤50% portfolio CP</td><td>§4</td><td class="text-right">≤50%</td><td class="text-right">Banking 13.2%</td><td class="text-center"><span class="badge badge-ok">PASS</span></td><td>Phân tán OK</td></tr>
+      <tr><td>7</td><td>Beta CP danh mục ≤ 1</td><td>§3</td><td class="text-right">≤ 1.0</td><td class="text-right">0.96</td><td class="text-center"><span class="badge badge-ok">PASS</span></td><td>Weighted avg by market value</td></tr>
+      <tr><td>8</td><td>Volatility &lt;12%/năm</td><td>§3</td><td class="text-right">&lt;12%</td><td class="text-right">N/A</td><td class="text-center"><span class="badge badge-info">PENDING</span></td><td>Cần ≥12 kỳ history</td></tr>
+      <tr><td>9</td><td>Max DD cảnh báo -10%</td><td>§3,§7</td><td class="text-right">-10%</td><td class="text-right">FPT -27%</td><td class="text-center"><span class="badge badge-danger">BREACH</span></td><td>FPT vượt cả ngưỡng -15% (bắt buộc rà soát)</td></tr>
+      <tr><td>10</td><td>Liquidity 7d ≥30% Pool B (IPS v2 §6.3)</td><td>§6.3</td><td class="text-right">≥21.63 tỷ</td><td class="text-right">12.78 tỷ</td><td class="text-center"><span class="badge badge-danger">FAIL</span></td><td>Thiếu 8.85 tỷ</td></tr>
+      <tr><td>11</td><td>Liquidity 30d ≥50% Pool B (IPS v2 §6.3)</td><td>§6.3</td><td class="text-right">≥36.05 tỷ</td><td class="text-right">12.94 tỷ</td><td class="text-center"><span class="badge badge-danger">FAIL</span></td><td>Thiếu 23.11 tỷ (nghiêm trọng)</td></tr>
+      <tr><td>12</td><td>Cash buffer ≥2 tháng CP</td><td>§5</td><td class="text-right">~2 tháng</td><td class="text-right">N/A</td><td class="text-center"><span class="badge badge-info">PENDING</span></td><td>Cần data chi phí vận hành tháng</td></tr>
+      <tr><td>13</td><td>Cash thặng dư &lt;20% NAV</td><td>§5</td><td class="text-right">&lt;20%</td><td class="text-right">3.20%</td><td class="text-center"><span class="badge badge-ok">PASS</span></td><td>OK</td></tr>
+      <tr><td>14</td><td>CAGR mục tiêu 15%/năm (2026)</td><td>§2</td><td class="text-right">≥15%</td><td class="text-right">7.58%</td><td class="text-center"><span class="badge badge-warn">UNDER</span></td><td>Q1 quy năm chưa đạt — quan sát tiếp</td></tr>
+    </tbody>
+  </table>
+
+  <div class="alert danger">
+    <strong>IPS Compliance Score: 7/19 PASS</strong> (50%) • 5 FAIL + 2 PENDING (chờ data). Cần action HIGH cho 4 vi phạm SAA + 1 vi phạm Liquidity 30d.
+  </div>
+</section>
+
+<!-- ===================== D4: Brinson-Fachler Attribution ===================== -->
+<section id="d4" class="section">
+  <div class="section-header">
+    <span class="section-tag">D4 • TIER 2</span>
+    <h2>Performance Attribution — Brinson-Fachler</h2>
+    <div class="framework">Tham chiếu: CFA L3 Portfolio Performance Evaluation • Brinson, Hood & Beebower (1986)</div>
+  </div>
+
+  <div class="alert info">
+    <strong>Cần ít nhất 2 kỳ snapshot để tính Brinson-Fachler.</strong> Hiện chỉ có Q1.2026 baseline. Em build template + công thức sẵn, sẽ điền số khi có T04 hoặc Q2.2026.
+  </div>
+
+  <div class="grid-2" style="margin-top:16px;">
+    <div class="chart-box">
+      <h3>Decomposition công thức Brinson-Fachler</h3>
+      <div class="formula">
+        Total Active Return = Σᵢ (wᵢᴾ − wᵢᴮ) × (Rᵢᴮ − Rᴮ) &nbsp;←&nbsp; <strong>Allocation Effect</strong><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + Σᵢ wᵢᴮ × (Rᵢᴾ − Rᵢᴮ) &nbsp;←&nbsp; <strong>Selection Effect</strong><br>
+        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; + Σᵢ (wᵢᴾ − wᵢᴮ) × (Rᵢᴾ − Rᵢᴮ) &nbsp;←&nbsp; <strong>Interaction</strong>
+      </div>
+      <div class="src">w = weight, R = return, P = portfolio, B = benchmark, i = asset class</div>
+    </div>
+    <div class="chart-box">
+      <h3>Allocation vs Selection effect (placeholder)</h3>
+      <div class="chart-wrap"><canvas id="brinsonChart"></canvas></div>
+    </div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Asset Class Contribution Waterfall — Đóng góp vào CAGR</h3>
+  <div class="chart-box">
+    <div class="chart-wrap" style="height:380px;"><canvas id="contributionWaterfall"></canvas></div>
+    <div class="src">Bắt đầu từ baseline 0, mỗi lớp tài sản cộng/trừ vào để ra Total CAGR. Stocks đang kéo CAGR xuống. (Lưu ý: Q1 chỉ là 1 kỳ — waterfall đầy đủ cần thêm history.)</div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Multi-period Return Metrics: TWR + IRR + Multipliers</h3>
+  <div class="grid-2">
+    <div>
+      <h3 style="font-size:13px;margin-bottom:8px;">TWR (Time-Weighted Return) — cho tài sản tài chính</h3>
+      <table>
+        <thead><tr><th>Lớp tài sản</th><th class="text-right">TWR YTD</th><th class="text-right">TWR 1Y</th><th>Ghi chú</th></tr></thead>
+        <tbody>
+          <tr><td>Stocks tự doanh</td><td class="text-right">N/A</td><td class="text-right neg">-12.58%</td><td>Geometric mean returns, loại bỏ cash flow effect</td></tr>
+          <tr><td>Stocks ủy thác F-Stock</td><td class="text-right">N/A</td><td class="text-right neg">-11.65%</td><td>—</td></tr>
+          <tr><td>TGCKH</td><td class="text-right">N/A</td><td class="text-right">~6.0%</td><td>Approx lãi suất hợp đồng</td></tr>
+          <tr><td>Cash & TGKKH</td><td class="text-right">N/A</td><td class="text-right">~0.5%</td><td>TGKKH lãi suất thấp</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3 style="font-size:13px;margin-bottom:8px;">IRR + Multipliers — cho tài sản kém thanh khoản (RE, PE)</h3>
+      <table>
+        <thead><tr><th>Asset</th><th class="text-right">IRR</th><th class="text-right">MOIC</th><th class="text-right">TVPI</th><th class="text-right">DPI</th><th class="text-right">RVPI</th></tr></thead>
+        <tbody>
+          <tr><td>BĐS BQ (8 properties)</td><td class="text-right pos">~11%</td><td class="text-right pos">1.13x</td><td class="text-right pos">1.13x</td><td class="text-right">0.00x</td><td class="text-right">1.13x</td></tr>
+          <tr><td>RE-Lakeside ĐN (best)</td><td class="text-right pos">~38%</td><td class="text-right pos">1.56x</td><td class="text-right pos">1.56x</td><td class="text-right">0.00x</td><td class="text-right">1.56x</td></tr>
+          <tr><td>RE-Habitat BD (best %)</td><td class="text-right pos">~42%</td><td class="text-right pos">1.19x</td><td class="text-right pos">1.19x</td><td class="text-right">0.00x</td><td class="text-right">1.19x</td></tr>
+          <tr><td>Private Equity</td><td class="text-right muted">N/A</td><td class="text-right muted">N/A</td><td class="text-right muted">N/A</td><td class="text-right muted">N/A</td><td class="text-right muted">N/A</td></tr>
+        </tbody>
+      </table>
+      <div class="src" style="margin-top:8px;">MOIC = Total Value/Paid-in. TVPI = (NAV + Distributions)/Paid-in. DPI = Distributions/Paid-in. RVPI = NAV/Paid-in. PE chưa có deal nên N/A.</div>
+    </div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Benchmark Mapping (sẽ dùng cho Brinson-Fachler kỳ tới)</h3>
+  <table>
+    <thead><tr><th>Lớp tài sản</th><th>Portfolio Return</th><th>Benchmark Return</th><th>Excess</th></tr></thead>
+    <tbody>
+      <tr><td>Stocks tự doanh</td><td>vs VN30-Index</td><td>HOSE / cafef.vn</td><td>α (alpha)</td></tr>
+      <tr><td>Stocks ủy thác (F-Stock)</td><td>vs VN-Index TR</td><td>HOSE</td><td>α</td></tr>
+      <tr><td>BĐS</td><td>vs CBRE/Savills/JLL benchmark (theo phân khúc)</td><td>Báo cáo Quý</td><td>Yield + Appreciation</td></tr>
+      <tr><td>TGCKH</td><td>vs Lãi suất BQ BIG4</td><td>SBV</td><td>Effective yield (sau cầm cố)</td></tr>
+      <tr><td>PE</td><td>vs IRR thị trường VN</td><td>VPCA / Preqin</td><td>IRR / MOIC</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===================== D5: Risk Analytics ===================== -->
+<section id="d5" class="section">
+  <div class="section-header">
+    <span class="section-tag">D5 • TIER 2</span>
+    <h2>Risk Analytics Dashboard</h2>
+    <div class="framework">Tham chiếu: CFA L3 Risk Management • Norway GPFG Risk Report • Bridgewater All-Weather framework</div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Volatility (12T)</div><div class="kpi-value">N/A</div><div class="kpi-sub">Cần history ≥12 kỳ</div></div>
+    <div class="kpi warn"><div class="kpi-label">VaR 95% (1M)</div><div class="kpi-value">~3.8<span class="unit">tỷ</span></div><div class="kpi-sub">Parametric ước tính</div></div>
+    <div class="kpi danger"><div class="kpi-label">VaR 99% (1M)</div><div class="kpi-value">~5.4<span class="unit">tỷ</span></div><div class="kpi-sub">Worst 1% scenario</div></div>
+    <div class="kpi ok"><div class="kpi-label">Beta CP</div><div class="kpi-value">0.96</div><div class="kpi-sub">IPS ≤1</div></div>
+    <div class="kpi danger"><div class="kpi-label">Max DD (Stocks)</div><div class="kpi-value">-27<span class="unit">%</span></div><div class="kpi-sub">FPT — vượt IPS -15%</div></div>
+  </div>
+
+  <div class="alert info">
+    <strong>VaR (Value at Risk) — Parametric method:</strong> VaR 95% nghĩa là với xác suất 95%, trong 1 tháng, danh mục sẽ KHÔNG lỗ quá 3.8 tỷ. VaR 99% = 5.4 tỷ (worst-case 1%). Em ước tính từ Volatility benchmark cho từng lớp tài sản (chưa có history thật). Khi có ≥12 kỳ, sẽ tính chính xác bằng historical method.
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-box">
+      <h3>Concentration HHI (Herfindahl-Hirschman Index)</h3>
+      <div class="chart-wrap"><canvas id="hhiChart"></canvas></div>
+      <div class="src">HHI = Σwᵢ² × 10000. &lt;1,500 = competitive; 1,500-2,500 = moderate; &gt;2,500 = highly concentrated.</div>
+    </div>
+    <div class="chart-box">
+      <h3>Risk Decomposition theo lớp tài sản</h3>
+      <div class="chart-wrap"><canvas id="riskRadar"></canvas></div>
+      <div class="src">Radar: rủi ro tương đối từng lớp theo 5 chiều (Volatility, Liquidity Risk, Concentration, Leverage, MaxDD).</div>
+    </div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Risk Metrics Detail</h3>
+  <table>
+    <thead><tr><th>Chỉ số</th><th>Công thức</th><th class="text-right">Hiện tại</th><th class="text-right">IPS threshold</th><th>Diễn giải</th></tr></thead>
+    <tbody>
+      <tr><td>Beta CP weighted avg</td><td>Σ(wᵢ × βᵢ) by market value</td><td class="text-right pos">0.96</td><td class="text-right">≤ 1.0</td><td>Beta thị trường, defensive nhẹ</td></tr>
+      <tr><td>VaR 95% parametric (1M)</td><td>1.645σ × NAV</td><td class="text-right warn">~3.8 tỷ</td><td class="text-right">&lt;5% NAV</td><td>~2.3% NAV — OK</td></tr>
+      <tr><td>VaR 99% parametric (1M)</td><td>2.326σ × NAV</td><td class="text-right danger">~5.4 tỷ</td><td class="text-right">&lt;7% NAV</td><td>~3.3% NAV — OK</td></tr>
+      <tr><td>HHI Stocks (single-name)</td><td>Σwᵢ² × 10000</td><td class="text-right">3,468</td><td class="text-right">&lt;2,500 prefer</td><td>FPT + VNM chiếm 66% → HHI cao</td></tr>
+      <tr><td>HHI BĐS (geographic)</td><td>Σwᵢ² × 10000 by tỉnh</td><td class="text-right">3,712</td><td class="text-right">&lt;5,000</td><td>HCM 60%, HN 35%, ĐN 10%, BD 4%</td></tr>
+      <tr><td>Leverage (Debt/NAV)</td><td>Total Debt / NAV</td><td class="text-right pos">18.55%</td><td class="text-right">&lt;30% (FO chuẩn)</td><td>Đòn bẩy thấp, an toàn</td></tr>
+      <tr><td>LTV BĐS BQ</td><td>Σ Loan / Σ Property Value</td><td class="text-right pos">24.5%</td><td class="text-right">&lt;50%</td><td>Có dư địa vay thêm</td></tr>
+      <tr><td>Concentration (Top-1 asset)</td><td>Largest position / NAV</td><td class="text-right warn">18.4%</td><td class="text-right">&lt;20%</td><td>CFA brand = 30.25 tỷ / 164.42</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:24px 0 10px;font-size:14px;">Correlation Matrix giữa các lớp tài sản</h3>
+  <div class="chart-box">
+    <div style="display:grid;grid-template-columns:140px repeat(6,1fr);gap:2px;font-size:11px;text-align:center;">
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;"></div>
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">Business</div>
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">Stocks</div>
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">BĐS</div>
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">TGCKH</div>
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">PE</div>
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">Cash</div>
+
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">Business</div>
+      <div style="padding:10px;background:#1F4E78;color:white;font-weight:700;">1.00</div>
+      <div style="padding:10px;background:#FED7AA;">+0.35</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.20</div>
+      <div style="padding:10px;background:#E0F2FE;">+0.05</div>
+      <div style="padding:10px;background:#FED7AA;">+0.40</div>
+      <div style="padding:10px;background:#E0F2FE;">+0.10</div>
+
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">Stocks</div>
+      <div style="padding:10px;background:#FED7AA;">+0.35</div>
+      <div style="padding:10px;background:#1F4E78;color:white;font-weight:700;">1.00</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.25</div>
+      <div style="padding:10px;background:#DBEAFE;">-0.10</div>
+      <div style="padding:10px;background:#FED7AA;">+0.50</div>
+      <div style="padding:10px;background:#DBEAFE;">-0.05</div>
+
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">BĐS</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.20</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.25</div>
+      <div style="padding:10px;background:#1F4E78;color:white;font-weight:700;">1.00</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.30</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.30</div>
+      <div style="padding:10px;background:#E0F2FE;">+0.05</div>
+
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">TGCKH</div>
+      <div style="padding:10px;background:#E0F2FE;">+0.05</div>
+      <div style="padding:10px;background:#DBEAFE;">-0.10</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.30</div>
+      <div style="padding:10px;background:#1F4E78;color:white;font-weight:700;">1.00</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.20</div>
+      <div style="padding:10px;background:#FED7AA;">+0.60</div>
+
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">PE</div>
+      <div style="padding:10px;background:#FED7AA;">+0.40</div>
+      <div style="padding:10px;background:#FED7AA;">+0.50</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.30</div>
+      <div style="padding:10px;background:#FEF3C7;">+0.20</div>
+      <div style="padding:10px;background:#1F4E78;color:white;font-weight:700;">1.00</div>
+      <div style="padding:10px;background:#E0F2FE;">+0.05</div>
+
+      <div style="font-weight:600;padding:8px;background:#F1F5F9;">Cash</div>
+      <div style="padding:10px;background:#E0F2FE;">+0.10</div>
+      <div style="padding:10px;background:#DBEAFE;">-0.05</div>
+      <div style="padding:10px;background:#E0F2FE;">+0.05</div>
+      <div style="padding:10px;background:#FED7AA;">+0.60</div>
+      <div style="padding:10px;background:#E0F2FE;">+0.05</div>
+      <div style="padding:10px;background:#1F4E78;color:white;font-weight:700;">1.00</div>
+    </div>
+    <div class="src" style="margin-top:10px;">Heatmap correlation. Đỏ cam = high positive (cùng giảm), vàng = moderate, xanh dương = negative (đa dạng hóa tốt). <strong>Insight:</strong> Stocks + PE có corr +0.50 — không đa dạng tốt. BĐS + TGCKH corr +0.30 — moderate. TGCKH + Cash corr +0.60 — cùng lớp thanh khoản, logical.</div>
+    <div class="src"><em>Giá trị correlation hiện đang là ước tính từ thị trường VN benchmark (chưa có history thật của SAPP). Khi có ≥24 kỳ tháng sẽ tính chính xác.</em></div>
+  </div>
+
+  <h3 style="margin:24px 0 10px;font-size:14px;">Stress Test — 4 Macro Scenarios</h3>
+  <table>
+    <thead><tr>
+      <th>Scenario</th>
+      <th>Giả định</th>
+      <th class="text-right">Business</th>
+      <th class="text-right">Stocks</th>
+      <th class="text-right">BĐS</th>
+      <th class="text-right">TGCKH</th>
+      <th class="text-right">NAV Δ</th>
+      <th class="text-center">Survive?</th>
+    </tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>S1 — Lãi suất +1%</strong></td>
+        <td>SBV tăng lãi suất chính sách 100bps</td>
+        <td class="text-right">-2%</td>
+        <td class="text-right neg">-8%</td>
+        <td class="text-right neg">-5%</td>
+        <td class="text-right pos">+3%</td>
+        <td class="text-right neg">-3.8 tỷ (-2.3%)</td>
+        <td class="text-center"><span class="badge badge-ok">YES</span></td>
+      </tr>
+      <tr>
+        <td><strong>S2 — Lạm phát &gt;5%</strong></td>
+        <td>CPI vượt 5%, NHNN buộc tăng lãi suất, giá BĐS tăng phòng hộ</td>
+        <td class="text-right">-3%</td>
+        <td class="text-right neg">-5%</td>
+        <td class="text-right pos">+8%</td>
+        <td class="text-right pos">+2%</td>
+        <td class="text-right pos">+2.4 tỷ (+1.5%)</td>
+        <td class="text-center"><span class="badge badge-ok">YES</span></td>
+      </tr>
+      <tr>
+        <td><strong>S3 — Stock crash -20%</strong></td>
+        <td>VN-Index sập 20% (như 2022)</td>
+        <td class="text-right">-1%</td>
+        <td class="text-right neg">-20%</td>
+        <td class="text-right neg">-2%</td>
+        <td class="text-right">0%</td>
+        <td class="text-right neg">-3.2 tỷ (-1.9%)</td>
+        <td class="text-center"><span class="badge badge-ok">YES</span></td>
+      </tr>
+      <tr>
+        <td><strong>S4 — Combined crisis</strong></td>
+        <td>Lãi suất +2% + Stock -30% + BĐS -10% + Doanh thu Business -25%</td>
+        <td class="text-right neg">-25%</td>
+        <td class="text-right neg">-30%</td>
+        <td class="text-right neg">-10%</td>
+        <td class="text-right pos">+5%</td>
+        <td class="text-right neg">-35.7 tỷ (-21.7%)</td>
+        <td class="text-center"><span class="badge badge-warn">STRESS</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="alert info">
+    <strong>Stress test interpretation:</strong> Danh mục SAPP tương đối resilient với 3 single-factor scenarios (S1-S3) — NAV giảm tối đa 2.3%. Tuy nhiên combined crisis (S4) sẽ kéo NAV xuống -22%, vượt ngưỡng IPS Max DD -15%. Cần build buffer thanh khoản để chống combined crisis. Mô phỏng dựa trên correlation ước tính + beta của từng lớp.
+  </div>
+</section>
+
+<!-- ===================== D6: Liquidity Profile ===================== -->
+<section id="d6" class="section">
+  <div class="section-header">
+    <span class="section-tag">D6 • TIER 2</span>
+    <h2>Liquidity Profile (LCR-style)</h2>
+    <div class="framework">Tham chiếu: CFA L3 Private Wealth Pathway — Liquidity Management • Basel III LCR framework • Yale Endowment liquidity ladder</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-box">
+      <h3>Liquidity Tiers (Waterfall)</h3>
+      <div class="chart-wrap"><canvas id="liqWaterfall"></canvas></div>
+      <div class="src">Tài sản theo 5 tier thanh khoản. Cumulative vs IPS requirement.</div>
+    </div>
+    <div class="chart-box">
+      <h3>LCR (Liquidity Coverage Ratio)</h3>
+      <div class="chart-wrap"><canvas id="lcrGauge"></canvas></div>
+      <div class="src">LCR = HQLA / Net Outflows 30d. Basel III yêu cầu ≥100%. SAPP hiện tại ≈ 31%.</div>
+    </div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Liquidity Tier Breakdown</h3>
+  <table>
+    <thead><tr><th>Tier</th><th>Thời gian chuyển đổi</th><th>Tài sản</th><th class="text-right">Giá trị (tỷ)</th><th class="text-right">% NAV</th><th class="text-center">Status vs IPS</th></tr></thead>
+    <tbody>
+      <tr><td><strong>T1 — Instant</strong></td><td>≤ 1 ngày</td><td>Cash + TGKKH</td><td class="text-right">6.23</td><td class="text-right">3.79%</td><td class="text-center"><span class="badge badge-na">—</span></td></tr>
+      <tr><td><strong>T2 — Short</strong></td><td>≤ 7 ngày</td><td>+ Stocks (HOSE)</td><td class="text-right">12.78</td><td class="text-right">17.72% Pool B NET</td><td class="text-center"><span class="badge badge-danger">FAIL (≥30% Pool B)</span></td></tr>
+      <tr><td><strong>T3 — Medium</strong></td><td>≤ 30 ngày</td><td>+ TGCKH khả dụng</td><td class="text-right">12.94</td><td class="text-right">17.94% Pool B NET</td><td class="text-center"><span class="badge badge-danger">FAIL (≥50% Pool B)</span></td></tr>
+      <tr><td><strong>T4 — Long</strong></td><td>≤ 90 ngày</td><td>+ TGCKH đáo hạn Q2</td><td class="text-right">12.94</td><td class="text-right">7.87%</td><td class="text-center"><span class="badge badge-warn">CHECK</span></td></tr>
+      <tr><td><strong>T5 — Illiquid</strong></td><td>&gt; 90 ngày</td><td>BĐS + Business + PE + TGCKH cầm cố</td><td class="text-right">151.48</td><td class="text-right">92.13%</td><td class="text-center"><span class="badge badge-na">—</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="kpi-strip" style="margin-top:20px;">
+    <div class="kpi"><div class="kpi-label">Cash Runway</div><div class="kpi-value">N/A<span class="unit">tháng</span></div><div class="kpi-sub">Cần data chi phí vận hành</div></div>
+    <div class="kpi warn"><div class="kpi-label">HQLA</div><div class="kpi-value">12.94<span class="unit">tỷ</span></div><div class="kpi-sub">High-Quality Liquid Assets</div></div>
+    <div class="kpi"><div class="kpi-label">Net Cash Flow Q1</div><div class="kpi-value">N/A</div><div class="kpi-sub">Cần data CF Q1 đầy đủ</div></div>
+    <div class="kpi"><div class="kpi-label">Capital Calls Q2</div><div class="kpi-value">0<span class="unit">tỷ</span></div><div class="kpi-sub">PE chưa có deal</div></div>
+    <div class="kpi"><div class="kpi-label">Loan repayment Q2</div><div class="kpi-value">~0.26<span class="unit">tỷ</span></div><div class="kpi-sub">3 khoản BĐS (~87 tr/tháng)</div></div>
+  </div>
+
+  <div class="chart-box" style="margin-top:20px;">
+    <h3>12-Month Cash Flow Forecast (Cash In/Out)</h3>
+    <div class="chart-wrap" style="height:320px;"><canvas id="cashFlowForecast"></canvas></div>
+    <div class="src">Line/Area chart. Đường xanh = Cash In (doanh thu Business + tiền thuê BĐS + lãi TGCKH). Đường đỏ = Cash Out (chi phí vận hành + trả lãi/gốc vay). Đường đen = Net cumulative. Số liệu là ESTIMATE từ data Q1 — cần kế toán xác nhận.</div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Stress Test Liquidity — 3 Scenarios</h3>
+  <table>
+    <thead><tr><th>Scenario</th><th>Giả định</th><th class="text-right">Cash Outflow 30d</th><th class="text-right">HQLA</th><th class="text-right">LCR</th><th class="text-center">Survive?</th></tr></thead>
+    <tbody>
+      <tr><td>Base case</td><td>Vận hành bình thường</td><td class="text-right">5 tỷ</td><td class="text-right">12.94</td><td class="text-right">259%</td><td class="text-center"><span class="badge badge-ok">YES</span></td></tr>
+      <tr><td>Mild stress</td><td>Doanh thu giảm 20% + 1 BĐS cần repair 3 tỷ</td><td class="text-right">10 tỷ</td><td class="text-right">12.94</td><td class="text-right">129%</td><td class="text-center"><span class="badge badge-ok">YES</span></td></tr>
+      <tr><td>Severe stress</td><td>Doanh thu giảm 50% + Capital Call PE 5 tỷ + Repair 3 tỷ</td><td class="text-right">25 tỷ</td><td class="text-right">12.94</td><td class="text-right">52%</td><td class="text-center"><span class="badge badge-danger">NO</span></td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Capital Calls vs Distributions Schedule (PE)</h3>
+  <table>
+    <thead><tr><th>Kỳ</th><th class="text-right">Capital Call dự kiến</th><th class="text-right">Distribution dự kiến</th><th class="text-right">Net Cash Flow</th><th>Ghi chú</th></tr></thead>
+    <tbody>
+      <tr><td>Q2.2026</td><td class="text-right">0</td><td class="text-right">0</td><td class="text-right">0</td><td>PE chưa hoạt động</td></tr>
+      <tr><td>Q3.2026</td><td class="text-right">0</td><td class="text-right">0</td><td class="text-right">0</td><td>Setup Quỹ M&A SAPP</td></tr>
+      <tr><td>Q4.2026</td><td class="text-right warn">-5</td><td class="text-right">0</td><td class="text-right neg">-5</td><td>Capital Call đầu tiên (placeholder)</td></tr>
+      <tr><td>Q1.2027</td><td class="text-right warn">-5</td><td class="text-right">0</td><td class="text-right neg">-5</td><td>Call 2</td></tr>
+      <tr><td>Q2.2027</td><td class="text-right warn">-5</td><td class="text-right">0</td><td class="text-right neg">-5</td><td>Call 3</td></tr>
+      <tr><td>Q3.2027</td><td class="text-right warn">-5</td><td class="text-right">0</td><td class="text-right neg">-5</td><td>Call 4 (đủ 20 tỷ cam kết)</td></tr>
+      <tr><td>2028-2030</td><td class="text-right">0</td><td class="text-right">0</td><td class="text-right">0</td><td>J-curve dưới zero — chưa exit</td></tr>
+      <tr><td>2031+</td><td class="text-right">0</td><td class="text-right pos">+ (sẽ track)</td><td class="text-right pos">+</td><td>Bắt đầu exit deals, distribution</td></tr>
+    </tbody>
+  </table>
+  <div class="alert info">
+    <strong>Cash Runway:</strong> Để tính chính xác, em cần data chi phí vận hành tháng (CSV 99_CashFlow.csv hiện chỉ có mẫu, chưa có actual numbers). Khi anh điền chi phí thực tế → Cash Runway = HQLA / Avg monthly net outflow.
+  </div>
+</section>
+
+<!-- ===================== D7: Counterparty Risk ===================== -->
+<section id="d7" class="section">
+  <div class="section-header">
+    <span class="section-tag">D7 • TIER 2</span>
+    <h2>Counterparty & Concentration Risk</h2>
+    <div class="framework">Tham chiếu: GFMA Counterparty risk best practices • Basel counterparty exposure framework</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-box">
+      <h3>Exposure theo Ngân hàng (Cash + TGCKH)</h3>
+      <div class="chart-wrap"><canvas id="bankExposure"></canvas></div>
+    </div>
+    <div class="chart-box">
+      <h3>BĐS — Geographic Concentration</h3>
+      <div class="chart-wrap"><canvas id="geoConc"></canvas></div>
+    </div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Counterparty Detail</h3>
+  <table>
+    <thead><tr><th>Loại</th><th>Counterparty</th><th class="text-right">Exposure (tỷ)</th><th class="text-right">% NAV</th><th>Loại tài sản</th><th>Risk note</th></tr></thead>
+    <tbody>
+      <tr><td>Bank</td><td>VPBank</td><td class="text-right">5.40</td><td class="text-right">3.28%</td><td>Cash chính + TGCKH</td><td>Top exposure, Tier 1 bank</td></tr>
+      <tr><td>Bank</td><td>MB Bank</td><td class="text-right">0.35</td><td class="text-right">0.21%</td><td>Cash + 1 TK doanh nghiệp</td><td>Phân tán</td></tr>
+      <tr><td>Bank</td><td>ACB</td><td class="text-right">0.49</td><td class="text-right">0.30%</td><td>Cash thanh toán</td><td>OK</td></tr>
+      <tr><td>Bank</td><td>BIDV</td><td class="text-right">0.09</td><td class="text-right">0.06%</td><td>Cash cá nhân</td><td>Nhỏ</td></tr>
+      <tr><td>Loan creditor</td><td>Banks (chung)</td><td class="text-right neg">-16.84</td><td class="text-right neg">-10.24%</td><td>Vay BĐS thế chấp</td><td>Lãi suất chưa update</td></tr>
+      <tr><td>Broker</td><td>HOSE thông qua CTCK</td><td class="text-right">5.66</td><td class="text-right">3.44%</td><td>6 mã CP tự doanh</td><td>Custody risk thấp</td></tr>
+      <tr><td>GP/Trustee</td><td>F-Stock entity</td><td class="text-right">0.88</td><td class="text-right">0.54%</td><td>Ủy thác đầu tư</td><td>Cần due diligence GP</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===================== D8: Business Valuation ===================== -->
+<section id="d8" class="section">
+  <div class="section-header">
+    <span class="section-tag">D8 • TIER 3 DEEP DIVE</span>
+    <h2>Business Valuation Dashboard</h2>
+    <div class="framework">Tham chiếu: Eqvista P/S framework • CFA L2 Equity — Private company valuation</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-box">
+      <h3>Brand Contribution to NET Value</h3>
+      <div class="chart-wrap"><canvas id="brandBar"></canvas></div>
+    </div>
+    <div class="chart-box">
+      <h3>P/S Sensitivity (±20%)</h3>
+      <div class="chart-wrap"><canvas id="psSensitivity"></canvas></div>
+      <div class="src">Stress test định giá khi P/S multiple thay đổi.</div>
+    </div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Brand Valuation Detail</h3>
+  <table>
+    <thead><tr>
+      <th>Brand</th>
+      <th class="text-right">DT thực hiện (tỷ)</th>
+      <th class="text-right">P/S</th>
+      <th class="text-right">Worth (tỷ)</th>
+      <th class="text-right">Deferred (tỷ)</th>
+      <th class="text-right">NET (tỷ)</th>
+      <th class="text-right">% Total NET</th>
+      <th>Notes</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><strong>CFA</strong></td><td class="text-right">35.75</td><td class="text-right">1.8x</td><td class="text-right">64.35</td><td class="text-right">34.10</td><td class="text-right pos">30.25</td><td class="text-right">30.3%</td><td>Brand chủ lực</td></tr>
+      <tr><td><strong>ACCA</strong></td><td class="text-right">32.41</td><td class="text-right">1.8x</td><td class="text-right">58.33</td><td class="text-right">33.86</td><td class="text-right pos">24.47</td><td class="text-right">24.5%</td><td>Defered cao — runoff risk</td></tr>
+      <tr><td>B2B</td><td class="text-right">11.70</td><td class="text-right">2.0x</td><td class="text-right">23.40</td><td class="text-right">0.54</td><td class="text-right pos">22.86</td><td class="text-right">22.9%</td><td>Margin cao, deferred thấp</td></tr>
+      <tr><td>CMA</td><td class="text-right">10.48</td><td class="text-right">1.7x</td><td class="text-right">17.81</td><td class="text-right">6.77</td><td class="text-right pos">11.04</td><td class="text-right">11.1%</td><td>—</td></tr>
+      <tr><td>CGMA</td><td class="text-right">3.14</td><td class="text-right">2.0x</td><td class="text-right">6.27</td><td class="text-right">0.08</td><td class="text-right pos">6.19</td><td class="text-right">6.2%</td><td>P/S cao nhất</td></tr>
+      <tr><td>IFRS</td><td class="text-right">1.92</td><td class="text-right">1.7x</td><td class="text-right">3.26</td><td class="text-right">0.31</td><td class="text-right pos">2.95</td><td class="text-right">3.0%</td><td>Brand nhỏ</td></tr>
+      <tr><td>SC.CMA</td><td class="text-right">1.81</td><td class="text-right">1.7x</td><td class="text-right">3.07</td><td class="text-right">1.12</td><td class="text-right pos">1.95</td><td class="text-right">2.0%</td><td>—</td></tr>
+      <tr style="font-weight:700;background:#F1F5F9;"><td>TỔNG</td><td class="text-right">97.21</td><td class="text-right">1.8x BQ</td><td class="text-right">176.49</td><td class="text-right">76.78</td><td class="text-right">99.75</td><td class="text-right">100%</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <div class="alert info">
+    <strong>Concentration risk:</strong> CFA + ACCA chiếm 54.8% NET Business → high concentration risk trong 1 lớp tài sản. Cần monitor pipeline học viên 2 brand này sát sao.
+  </div>
+</section>
+
+<!-- ===================== D9: Public Equity ===================== -->
+<section id="d9" class="section">
+  <div class="section-header">
+    <span class="section-tag">D9 • TIER 3 DEEP DIVE</span>
+    <h2>Public Equity Dashboard</h2>
+    <div class="framework">Tham chiếu: CFA L3 Equity Portfolio Management</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-box">
+      <h3>Position P/L (%)</h3>
+      <div class="chart-wrap"><canvas id="stockPL"></canvas></div>
+    </div>
+    <div class="chart-box">
+      <h3>Sector Exposure</h3>
+      <div class="chart-wrap"><canvas id="sectorPie"></canvas></div>
+    </div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Position Detail</h3>
+  <table>
+    <thead><tr><th>Mã</th><th>Ngành</th><th class="text-right">Số lượng</th><th class="text-right">Giá vốn</th><th class="text-right">Giá TT</th><th class="text-right">GT TT (tỷ)</th><th class="text-right">P/L %</th><th class="text-right">Beta</th><th class="text-center">Stop-loss</th></tr></thead>
+    <tbody>
+      <tr><td><strong>ACB</strong></td><td>Banking</td><td class="text-right">10,454</td><td class="text-right">16,944</td><td class="text-right">23,550</td><td class="text-right">0.25</td><td class="text-right pos">+38.99%</td><td class="text-right">1.0</td><td class="text-center"><span class="badge badge-ok">OK</span></td></tr>
+      <tr><td><strong>FPT</strong></td><td>IT</td><td class="text-right">29,169</td><td class="text-right">102,320</td><td class="text-right">74,700</td><td class="text-right">2.18</td><td class="text-right neg">-26.99%</td><td class="text-right">1.1</td><td class="text-center"><span class="badge badge-danger">BREACH</span></td></tr>
+      <tr><td>HPG</td><td>Industrials</td><td class="text-right">17,846</td><td class="text-right">28,788</td><td class="text-right">26,900</td><td class="text-right">0.48</td><td class="text-right neg">-6.56%</td><td class="text-right">1.3</td><td class="text-center"><span class="badge badge-ok">OK</span></td></tr>
+      <tr><td><strong>TCB</strong></td><td>Banking</td><td class="text-right">20,000</td><td class="text-right">24,050</td><td class="text-right">30,700</td><td class="text-right">0.61</td><td class="text-right pos">+27.65%</td><td class="text-right">1.0</td><td class="text-center"><span class="badge badge-ok">OK</span></td></tr>
+      <tr><td>VNM</td><td>Utilities/Consumer</td><td class="text-right">35,400</td><td class="text-right">65,809</td><td class="text-right">60,500</td><td class="text-right">2.14</td><td class="text-right neg">-8.07%</td><td class="text-right">0.7</td><td class="text-center"><span class="badge badge-warn">WATCH</span></td></tr>
+      <tr><td>F-Stock</td><td>Entrustment</td><td class="text-right">1</td><td class="text-right">1,000M</td><td class="text-right">883M</td><td class="text-right">0.88</td><td class="text-right neg">-11.65%</td><td class="text-right">1.0</td><td class="text-center"><span class="badge badge-warn">WATCH</span></td></tr>
+      <tr style="font-weight:700;background:#F1F5F9;"><td>TỔNG</td><td>—</td><td class="text-right">—</td><td class="text-right">7,486M</td><td class="text-right">6,544M</td><td class="text-right">6.54</td><td class="text-right neg">-12.58%</td><td class="text-right">0.96</td><td class="text-center">—</td></tr>
+    </tbody>
+  </table>
+
+  <div class="alert danger">
+    <strong>FPT — IPS §7 BREACH:</strong> Lỗ -27% đã vượt cả ngưỡng cảnh báo (-10%) và ngưỡng hạ tỷ trọng (-15%). Bắt buộc phải: (1) báo cáo BĐH; (2) review luận điểm đầu tư; (3) quyết định hold/cut.
+  </div>
+</section>
+
+<!-- ===================== D10: Real Estate ===================== -->
+<section id="d10" class="section">
+  <div class="section-header">
+    <span class="section-tag">D10 • TIER 3 DEEP DIVE</span>
+    <h2>Real Estate Dashboard</h2>
+    <div class="framework">Tham chiếu: CFA L3 Alternative Investments — Real Estate • CBRE/Savills institutional report</div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi"><div class="kpi-label">Tổng giá TT</div><div class="kpi-value">68.57<span class="unit">tỷ</span></div></div>
+    <div class="kpi"><div class="kpi-label">Tổng giá vốn</div><div class="kpi-value">60.95<span class="unit">tỷ</span></div></div>
+    <div class="kpi ok"><div class="kpi-label">Unrealized P/L</div><div class="kpi-value">+7.62<span class="unit">tỷ</span></div><div class="kpi-sub">+12.5%</div></div>
+    <div class="kpi"><div class="kpi-label">LTV BQ</div><div class="kpi-value">24.5<span class="unit">%</span></div><div class="kpi-sub">Đòn bẩy thấp</div></div>
+    <div class="kpi warn"><div class="kpi-label">Lease Income</div><div class="kpi-value">N/A</div><div class="kpi-sub">Cần data thu thuê</div></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-box">
+      <h3>Performance per Property (% P/L)</h3>
+      <div class="chart-wrap"><canvas id="rePerf"></canvas></div>
+    </div>
+    <div class="chart-box">
+      <h3>LTV per Property</h3>
+      <div class="chart-wrap"><canvas id="reLTV"></canvas></div>
+    </div>
+  </div>
+
+    <div class="alert info" style="margin:14px 0;">
+    <strong>📊 Market context Q1.2026 (từ Cushman & Wakefield reports):</strong>
+    <table style="margin-top:10px;width:100%;font-size:12px;">
+      <thead><tr>
+        <th style="text-align:left;padding:6px;">Phân khúc</th>
+        <th style="text-align:right;padding:6px;">Q1.2026</th>
+        <th style="text-align:left;padding:6px;">BĐS SAPP liên quan</th>
+        <th style="text-align:center;padding:6px;">Outlook</th>
+      </tr></thead>
+      <tbody>
+        <tr style="border-top:1px solid #E5E7EB;"><td style="padding:6px;">Office Hạng A HN</td><td style="text-align:right;padding:6px;">$32.1/m² (lấp 78%)</td><td style="padding:6px;">N/A</td><td style="text-align:center;">Stable</td></tr>
+        <tr style="border-top:1px solid #E5E7EB;"><td style="padding:6px;">Office Hạng A HCM</td><td style="text-align:right;padding:6px;">$53.5/m² (lấp 88%)</td><td style="padding:6px;">N/A</td><td style="text-align:center;">Slight decline</td></tr>
+        <tr style="border-top:1px solid #E5E7EB;background:#FFFBEB;"><td style="padding:6px;">Căn hộ HCM Q1 mới</td><td style="text-align:right;padding:6px;"><strong>-47% YoY</strong></td><td style="padding:6px;">Vinhomes Bason (Q1)</td><td style="text-align:center;">⚠️ Watch</td></tr>
+        <tr style="border-top:1px solid #E5E7EB;background:#F0FDF4;"><td style="padding:6px;">Bình Dương căn hộ Q1</td><td style="text-align:right;padding:6px;"><strong>7,017 căn mới</strong></td><td style="padding:6px;">Habitat Bình Dương</td><td style="text-align:center;">✅ Strong</td></tr>
+        <tr style="border-top:1px solid #E5E7EB;background:#F0FDF4;"><td style="padding:6px;">Nhà liền thổ ngoại ô HN</td><td style="text-align:right;padding:6px;">Hòa Lạc cực tăng trưởng</td><td style="padding:6px;">TĐC ĐHQG (VLHNN_A_02)</td><td style="text-align:center;">✅ Positive</td></tr>
+        <tr style="border-top:1px solid #E5E7EB;background:#FFFBEB;"><td style="padding:6px;">Nhà liền thổ HN giao dịch</td><td style="text-align:right;padding:6px;"><strong>-73% YoY</strong></td><td style="padding:6px;">Hinode Royal Park</td><td style="text-align:center;">⚠️ Slow exit</td></tr>
+        <tr style="border-top:1px solid #E5E7EB;background:#F0FDF4;"><td style="padding:6px;">Khu Đông HCM căn hộ</td><td style="text-align:right;padding:6px;">80% supply mới</td><td style="padding:6px;">BĐS Thủ Đức (OPHCM_L_01)</td><td style="text-align:center;">✅ Hot zone</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:8px;font-size:11px;color:#6B7280;font-style:italic;">Nguồn: Cushman & Wakefield Hà Nội/HCM MarketBeat Q1.2026 + VCBS BĐS 2026 report</div>
+  </div>
+
+<h3 style="margin:20px 0 10px;font-size:14px;">Property Detail</h3>
+  <table>
+    <thead><tr><th>Mã</th><th>Tên</th><th>Loại</th><th>Mục đích</th><th>Vị trí</th><th class="text-right">Giá vốn</th><th class="text-right">Giá TT</th><th class="text-right">P/L %</th><th class="text-right">LTV %</th></tr></thead>
+    <tbody>
+      <tr><td>SODNN_L_01</td><td>Lakeside Đà Nẵng</td><td>Shophouse</td><td>Lease</td><td>Đà Nẵng</td><td class="text-right">4.24</td><td class="text-right">6.60</td><td class="text-right pos">+38.16%</td><td class="text-right pos">0%</td></tr>
+      <tr><td>APBDD_L_01</td><td>Habitat Bình Dương</td><td>Apartment</td><td>Lease</td><td>Bình Dương</td><td class="text-right">2.43</td><td class="text-right">2.89</td><td class="text-right pos">+42.12%</td><td class="text-right pos">0%</td></tr>
+      <tr><td>OFHCM_L_01</td><td>Bình Thạnh</td><td>Vacant land</td><td>Lease</td><td>HCM</td><td class="text-right">14.14</td><td class="text-right">16.02</td><td class="text-right pos">+13.86%</td><td class="text-right warn">16.9%</td></tr>
+      <tr><td>VLHNN_A_01</td><td>Hinode Royal Park</td><td>Vacant land</td><td>Appreciation</td><td>Hoài Đức HN</td><td class="text-right">13.24</td><td class="text-right">15.05</td><td class="text-right pos">+7.44%</td><td class="text-right pos">0%</td></tr>
+      <tr><td>APHCM_L_01</td><td>Vinhomes Bason</td><td>Apartment</td><td>Lease</td><td>HCM Bến Nghé</td><td class="text-right">8.65</td><td class="text-right">8.90</td><td class="text-right pos">+5.98%</td><td class="text-right pos">0%</td></tr>
+      <tr><td>VLHNN_A_02</td><td>TĐC ĐHQG</td><td>Vacant land</td><td>Appreciation</td><td>Hòa Lạc HN</td><td class="text-right">7.75</td><td class="text-right">8.40</td><td class="text-right pos">+5.07%</td><td class="text-right warn">47.6%</td></tr>
+      <tr><td>OPHCM_L_01</td><td>Thủ Đức</td><td>Own-used</td><td>Own+Lease</td><td>HCM Thủ Đức</td><td class="text-right">10.50</td><td class="text-right">10.71</td><td class="text-right pos">+1.63%</td><td class="text-right warn">55.1%</td></tr>
+      <tr><td>RE_08</td><td>(Trống)</td><td>—</td><td>—</td><td>—</td><td class="text-right">—</td><td class="text-right">—</td><td class="text-right">—</td><td class="text-right">—</td></tr>
+    </tbody>
+  </table>
+
+  <div class="alert warn">
+    <strong>Data gap:</strong> Sheet Lease_Income_BDS chưa có dữ liệu giá thuê + cap rate. Cần điền để tính yield, hiện chỉ track appreciation.
+  </div>
+</section>
+
+<!-- ===================== D11: ALM ===================== -->
+<section id="d11" class="section">
+  <div class="section-header">
+    <span class="section-tag">D11 • TIER 3 DEEP DIVE</span>
+    <h2>Fixed Income + Loans — ALM Dashboard</h2>
+    <div class="framework">Tham chiếu: CFA L3 Asset-Liability Management • IPS §6 ALM principles</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="chart-box">
+      <h3>TGCKH Maturity Ladder</h3>
+      <div class="chart-wrap"><canvas id="maturityLadder"></canvas></div>
+    </div>
+    <div class="chart-box">
+      <h3>Encumbrance Status</h3>
+      <div class="chart-wrap"><canvas id="encumbrance"></canvas></div>
+      <div class="src">Tỷ lệ TGCKH bị cầm cố vs khả dụng.</div>
+    </div>
+  </div>
+
+  
+  <h3 style="margin:20px 0 10px;font-size:14px;">🔄 ALM Classification — Phân loại Ngắn hạn / Dài hạn</h3>
+
+  <div class="alert info" style="margin-bottom:14px;">
+    <strong>📐 Rules phân loại (custom):</strong>
+    <ul style="margin:6px 0 0 24px;font-size:12px;">
+      <li><strong>BĐS</strong> → Tài sản dài hạn (LT)</li>
+      <li><strong>Stocks / CP / Chứng chỉ quỹ / Ủy thác / Cash</strong> → Tài sản ngắn hạn (ST)</li>
+      <li><strong>Business value</strong> (Gross Worth) → Tài sản dài hạn (LT)</li>
+      <li><strong>TGCKH</strong>: khả dụng = ST, cầm cố = LT</li>
+      <li><strong>Deferred revenue</strong>: 1/3 ngắn hạn (25.59 tỷ), 2/3 dài hạn (51.19 tỷ)</li>
+      <li><strong>Bank loans</strong>: pro-rated theo kỳ hạn (e.g., vay 25 năm → 1/25 = ST, 24/25 = LT)</li>
+    </ul>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <h4 style="margin:10px 0 6px;font-size:12px;color:#1F4E78;">📌 TÀI SẢN — Asset Classification</h4>
+      <table>
+        <thead><tr><th>Loại tài sản</th><th class="text-right">Giá trị (tỷ)</th><th class="text-center">Phân loại</th></tr></thead>
+        <tbody>
+          <tr><td>Cash & TGKKH</td><td class="text-right">6.23</td><td class="text-center"><span class="badge badge-info">ST</span></td></tr>
+          <tr><td>Stocks Self</td><td class="text-right">5.66</td><td class="text-center"><span class="badge badge-info">ST</span></td></tr>
+          <tr><td>Stocks Trust</td><td class="text-right">0.88</td><td class="text-center"><span class="badge badge-info">ST</span></td></tr>
+          <tr><td>FundCert</td><td class="text-right">0.00</td><td class="text-center"><span class="badge badge-info">ST</span></td></tr>
+          <tr><td>TGCKH khả dụng</td><td class="text-right">0.16</td><td class="text-center"><span class="badge badge-info">ST</span></td></tr>
+          <tr style="background:#DBEAFE;font-weight:700;"><td>Σ ST Assets</td><td class="text-right">12.94</td><td class="text-center">—</td></tr>
+          <tr><td>Business (Gross Worth)</td><td class="text-right">176.49</td><td class="text-center"><span class="badge badge-warn">LT</span></td></tr>
+          <tr><td>Bất động sản</td><td class="text-right">68.57</td><td class="text-center"><span class="badge badge-warn">LT</span></td></tr>
+          <tr><td>TGCKH cầm cố</td><td class="text-right">13.66</td><td class="text-center"><span class="badge badge-warn">LT</span></td></tr>
+          <tr><td>Private Equity</td><td class="text-right">0.00</td><td class="text-center"><span class="badge badge-warn">LT</span></td></tr>
+          <tr style="background:#FEF3C7;font-weight:700;"><td>Σ LT Assets</td><td class="text-right">258.72</td><td class="text-center">—</td></tr>
+          <tr style="background:#F1F5F9;font-weight:700;"><td>TỔNG Tài sản</td><td class="text-right">271.66</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <h4 style="margin:10px 0 6px;font-size:12px;color:#1F4E78;">📌 NỢ PHẢI TRẢ — Liability Classification</h4>
+      <table>
+        <thead><tr><th>Loại nợ</th><th class="text-right">Giá trị (tỷ)</th><th class="text-center">Phân loại</th></tr></thead>
+        <tbody>
+          <tr><td>Deferred revenue (1/3)</td><td class="text-right">25.59</td><td class="text-center"><span class="badge badge-info">ST</span></td></tr>
+          <tr><td>Bank loan pro-rated ST</td><td class="text-right">0.71</td><td class="text-center"><span class="badge badge-info">ST</span></td></tr>
+          <tr style="background:#DBEAFE;font-weight:700;"><td>Σ ST Liab</td><td class="text-right">26.30</td><td class="text-center">—</td></tr>
+          <tr><td>Deferred revenue (2/3)</td><td class="text-right">51.19</td><td class="text-center"><span class="badge badge-warn">LT</span></td></tr>
+          <tr><td>Bank loan pro-rated LT</td><td class="text-right">16.12</td><td class="text-center"><span class="badge badge-warn">LT</span></td></tr>
+          <tr style="background:#FEF3C7;font-weight:700;"><td>Σ LT Liab</td><td class="text-right">67.31</td><td class="text-center">—</td></tr>
+          <tr style="background:#F1F5F9;font-weight:700;"><td>TỔNG Nợ</td><td class="text-right">93.61</td><td></td></tr>
+        </tbody>
+      </table>
+
+      <h4 style="margin:14px 0 6px;font-size:12px;color:#1F4E78;">🚦 Bank Loan Pro-rating</h4>
+      <table style="font-size:11px;">
+        <thead><tr><th>Mã</th><th class="text-right">Dư nợ</th><th class="text-right">Kỳ hạn</th><th class="text-right">ST (1/n)</th><th class="text-right">LT</th></tr></thead>
+        <tbody>
+          <tr><td>LIA_02</td><td class="text-right">3.77</td><td class="text-right">20.0</td><td class="text-right">0.19</td><td class="text-right">3.58</td></tr>
+          <tr><td>LIA_03</td><td class="text-right">5.63</td><td class="text-right">25.0</td><td class="text-right">0.22</td><td class="text-right">5.40</td></tr>
+          <tr><td>LIA_04</td><td class="text-right">2.61</td><td class="text-right">25.0</td><td class="text-right">0.10</td><td class="text-right">2.51</td></tr>
+          <tr><td>LIA_05</td><td class="text-right">4.83</td><td class="text-right">25.0</td><td class="text-right">0.19</td><td class="text-right">4.64</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">⚖️ ALM Gap Analysis</h3>
+
+  <div class="alert danger" style="margin-bottom:14px;">
+    <strong>❌ VI PHẠM NGUYÊN TẮC ALM (IPS v2 §4.3):</strong>
+    <ul style="margin:6px 0 0 24px;">
+      <li><strong>Current Ratio = 12.94 / 26.30 = 0.49</strong> (chuẩn family office ≥ 1.0)</li>
+      <li>ST Liab 26.30 tỷ > ST Assets 12.94 tỷ → <strong>thiếu 13.36 tỷ</strong> tài sản thanh khoản</li>
+      <li>Nếu Business chậm + deferred phải refund → SAPP phải bán LT assets (BĐS, Business) để cover ST liab</li>
+    </ul>
+  </div>
+
+  <div class="alert info" style="margin-bottom:14px;">
+    <strong>✅ Long-term coverage OK:</strong>
+    <ul style="margin:6px 0 0 24px;">
+      <li><strong>LT Coverage = 258.72 / 67.31 = 3.84x</strong> (very strong)</li>
+      <li>LT Assets 258.72 tỷ >> LT Liab 67.31 tỷ → excess 191.41 tỷ</li>
+      <li>SAPP có dư địa dài hạn lớn, nhưng cần shift một phần sang ST để fix Current Ratio</li>
+    </ul>
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">💡 Recommendations để fix ALM</h3>
+  <table>
+    <thead><tr><th>Approach</th><th>Action</th><th class="text-right">Impact ST Gap</th><th>Priority</th></tr></thead>
+    <tbody>
+      <tr><td><strong>1. Tăng ST Assets</strong></td><td>Bổ sung Cash buffer + TGCKH không cầm cố ~13.4 tỷ</td><td class="text-right pos">+13.4 tỷ</td><td><span class="badge badge-danger">HIGH</span></td></tr>
+      <tr><td><strong>2. Convert LT → ST</strong></td><td>Bán 1 BĐS thanh khoản tốt (Vinhomes Bason 8.9 tỷ)</td><td class="text-right pos">+8.9 tỷ</td><td><span class="badge badge-warn">MED</span></td></tr>
+      <tr><td><strong>3. Tăng FundCert / Bonds</strong></td><td>Đầu tư ETF VFMVN30 ~7 tỷ (highly liquid)</td><td class="text-right pos">+7 tỷ</td><td><span class="badge badge-warn">MED</span></td></tr>
+      <tr><td><strong>4. Giảm ST Liab</strong></td><td>Recognize faster deferred revenue (hoàn thành nhanh dịch vụ giáo dục)</td><td class="text-right pos">+5-10 tỷ/năm</td><td><span class="badge badge-info">LOW</span></td></tr>
+      <tr><td><strong>5. Roll over deferred</strong></td><td>Khuyến khích học viên gia hạn thay vì refund (giảm ST risk)</td><td class="text-right pos">Soft</td><td><span class="badge badge-info">LOW</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="alert info" style="margin-top:14px;">
+    <strong>📐 Quy ước phân loại ALM:</strong>
+    Defered revenue split 1/3 ST + 2/3 LT là estimate dựa trên cycle học viên SAPP (kỳ học typical 12-24 tháng).
+    Bank loan pro-rated theo kỳ hạn vay (1/n năm = ST portion). Nếu rule khác, anh chỉnh trong Interactive Dashboard.
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">📈 Maturity Ladder TGCKH (existing)</h3>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">TGCKH Detail (9 sổ)</h3>
+  <table>
+    <thead><tr><th>Mã</th><th>Loại</th><th>Ngày gửi</th><th>Đáo hạn</th><th class="text-right">Gốc (tỷ)</th><th class="text-right">Khả dụng</th><th>Cầm cố</th><th class="text-right">Vay TC (tỷ)</th></tr></thead>
+    <tbody>
+      <tr><td>TD_09</td><td>12T</td><td>2025-01-02</td><td>2026-01-02</td><td class="text-right">7.70</td><td class="text-right warn">0.04</td><td>Cầm cố BĐS</td><td class="text-right">7.70</td></tr>
+      <tr><td>TD_06</td><td>12T</td><td>2025-04-09</td><td>2026-04-09</td><td class="text-right">6.00</td><td class="text-right neg">0.00</td><td>Vay thấu chi</td><td class="text-right">6.00</td></tr>
+      <tr><td>TD_04</td><td>6T</td><td>2025-12-26</td><td>2026-06-26</td><td class="text-right">0.13</td><td class="text-right pos">0.13</td><td>Không</td><td class="text-right">0</td></tr>
+      <tr><td>TD_02</td><td>13T đáo hạn</td><td>2024-07-05</td><td>2025-08-05</td><td class="text-right">0</td><td class="text-right">0</td><td>Vay NH</td><td class="text-right">6.79</td></tr>
+      <tr><td>TD_07</td><td>12T đáo hạn</td><td>2025-01-22</td><td>2026-01-22</td><td class="text-right">0</td><td class="text-right">0</td><td>Cầm cố BĐS</td><td class="text-right">4.00</td></tr>
+      <tr><td>TD_08</td><td>12T đáo hạn</td><td>2025-01-02</td><td>2026-01-02</td><td class="text-right">0</td><td class="text-right">0</td><td>Cầm cố BĐS</td><td class="text-right">5.90</td></tr>
+      <tr><td>TD_03</td><td>12T đáo hạn</td><td>2024-10-09</td><td>2025-10-09</td><td class="text-right">0</td><td class="text-right">0</td><td>Vay NH</td><td class="text-right">1.00</td></tr>
+      <tr style="font-weight:700;background:#F1F5F9;"><td>TỔNG</td><td>—</td><td>—</td><td>—</td><td class="text-right">13.83</td><td class="text-right neg">0.16</td><td>—</td><td class="text-right">31.39</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Loan Schedule + DSCR</h3>
+  <table>
+    <thead><tr><th>Mã</th><th>Khoản vay</th><th class="text-right">Dư nợ</th><th>Tài sản TC</th><th class="text-right">Trả/tháng (tr)</th><th>Đáo hạn</th></tr></thead>
+    <tbody>
+      <tr><td>LIA_02</td><td>BĐS TĐC ĐHQG</td><td class="text-right">3.77</td><td>VLHNN_A_02</td><td class="text-right">~37.5</td><td>2045-01-25</td></tr>
+      <tr><td>LIA_03</td><td>BĐS Thủ Đức</td><td class="text-right">5.63</td><td>OPHCM_L_01</td><td class="text-right">~50</td><td>2050-01-10</td></tr>
+      <tr><td>LIA_04</td><td>BĐS Bình Thạnh (1)</td><td class="text-right">2.61</td><td>OFHCM_L_01</td><td class="text-right">N/A</td><td>2050-04-28</td></tr>
+      <tr><td>LIA_05</td><td>BĐS Bình Thạnh (2)</td><td class="text-right">4.83</td><td>—</td><td class="text-right">N/A</td><td>2050-04-28</td></tr>
+      <tr><td>LIA_06</td><td><strong>Other (chưa rõ)</strong></td><td class="text-right warn">13.67</td><td>—</td><td class="text-right">—</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <div class="alert warn">
+    <strong>ALM Gap:</strong> Tài sản dài hạn (BĐS 68.57 tỷ) được tài trợ phần lớn bằng vốn dài hạn (vay 25 năm) → match maturity tốt. Nhưng TGCKH cầm cố cho BĐS có ALM mismatch: TGCKH 12 tháng vs vay 25 năm. Khi đáo hạn TGCKH, cần roll over để giữ collateral.
+  </div>
+</section>
+
+<!-- ===================== D12: Private Equity ===================== -->
+<section id="d12" class="section">
+  <div class="section-header">
+    <span class="section-tag">D12 • TIER 3 DEEP DIVE</span>
+    <h2>Private Equity Dashboard</h2>
+    <div class="framework">Tham chiếu: ILPA Reporting Template • CFA L3 Private Markets Pathway</div>
+  </div>
+
+  <div class="placeholder">
+    <strong>SAPP chưa có khoản PE/M&A nào.</strong><br>
+    IPS v2 §2 Pool C yêu cầu 15% NAV (10-20%) ≈ 29.24 tỷ. Hiện tại 0%, gap full = 29.24 tỷ underweight.<br>
+    Dashboard này sẽ activate khi Quỹ M&A SAPP (kế hoạch IPS §12) bắt đầu invest.
+  </div>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Quỹ M&A SAPP — Kế hoạch (IPS §12)</h3>
+  <table>
+    <thead><tr><th>Thông số</th><th>Giá trị</th></tr></thead>
+    <tbody>
+      <tr><td>Quy mô vốn dự kiến</td><td>40-50 tỷ VND</td></tr>
+      <tr><td>SAPP góp</td><td>20 tỷ (≈ 12% NAV)</td></tr>
+      <tr><td>Huy động ngoài</td><td>20-30 tỷ (nhà đầu tư đồng hành)</td></tr>
+      <tr><td>Thời hạn/deal</td><td>3-5 năm tối thiểu</td></tr>
+      <tr><td>Tỷ lệ sở hữu/target</td><td>&lt; 50% (giữ động lực founder)</td></tr>
+      <tr><td>Concentration cap/target</td><td>≤ 25% tổng quy mô Quỹ</td></tr>
+      <tr><td>Ngành ưu tiên</td><td>Trung tâm luyện thi, EdTech, Tư vấn học thuật, Phòng khám/CĐHA</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Metrics Template (sẽ track khi có deal)</h3>
+  <table>
+    <thead><tr><th>Metric</th><th>Công thức</th><th>Benchmark VN</th></tr></thead>
+    <tbody>
+      <tr><td>IRR (Internal Rate of Return)</td><td>NPV-based, theo cash flow + NAV</td><td>≥ 20% (PE VN target)</td></tr>
+      <tr><td>MOIC (Multiple of Invested Capital)</td><td>Total Value / Paid-in Capital</td><td>≥ 2.0x (5 năm)</td></tr>
+      <tr><td>TVPI (Total Value to Paid-in)</td><td>(NAV + Distributions) / Paid-in</td><td>≥ 2.0x</td></tr>
+      <tr><td>DPI (Distributions to Paid-in)</td><td>Distributions / Paid-in</td><td>Tăng dần theo vintage</td></tr>
+      <tr><td>RVPI (Residual Value to Paid-in)</td><td>NAV / Paid-in</td><td>Giảm khi exit</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===================== D13: Action Items ===================== -->
+<section id="d13" class="section">
+  <div class="section-header">
+    <span class="section-tag">D13 • TIER 4 GOVERNANCE</span>
+    <h2>Action Items & Decisions Log</h2>
+    <div class="framework">Kanban-style — priority HIGH/MED/LOW</div>
+  </div>
+
+  <div class="kanban">
+    <div class="kanban-col high">
+      <h4>🔴 HIGH Priority (6)</h4>
+
+      <div class="action high">
+        <div class="action-title">6. NEW — Review Vinhomes Bason (Q1 HCM) pricing</div>
+        Theo Cushman & Wakefield HCM Q1.2026: căn hộ Q1 mới -47% YoY, Khu Đông hút 80% supply mới. Vinhomes Bason ở trung tâm cũ Q1 có thể chịu áp lực thanh khoản + giá thuê.
+        <div class="action-meta">Owner: anh • Deadline: review hợp đồng cho thuê T05.2026</div>
+      </div>
+
+      <div class="action high">
+        <div class="action-title">7. NEW — Exit Hinode Royal Park: chờ thị trường phục hồi</div>
+        C&W HN: Nhà liền thổ HN giao dịch -73% YoY Q1. Nếu định bán Hinode (Hoài Đức), nên chờ thị trường active hơn — ước tính từ Q3.2026 trở đi.
+        <div class="action-meta">Owner: anh • Deadline: monitor quarterly</div>
+      </div>
+
+      <div class="action high">
+        <div class="action-title">1. Reconcile 13.66 tỷ Other Liabilities</div>
+        Yêu cầu kế toán cung cấp bảng cân đối kế toán Q1.2026 đầy đủ để identify khoản nợ còn lại. NAV cuối có thể thay đổi.
+        <div class="action-meta">Owner: anh + kế toán • Deadline: tuần này</div>
+      </div>
+
+      <div class="action high">
+        <div class="action-title">2. Liquidity 30d FAIL — tăng lên ≥50% Pool B (IPS v2 §6.3)</div>
+        Hiện 17.94% Pool B NET vs IPS v2 §6.3 yêu cầu ≥50% Pool B NET = 36.05 tỷ. Thiếu 23.11 tỷ. Action: (a) chờ TD_07, TD_08 đáo hạn 2026-01 → giải phóng 9.9 tỷ; (b) cân nhắc thanh lý 1 BĐS thanh khoản tốt.
+        <div class="action-meta">Owner: anh • Deadline: rà soát T06.2026<br><strong>Sources:</strong> IPS v2 §6.3, §5.3 + CFA L3 Private Wealth (liquidity mgmt) + HDBVPB (banking peer) + FiinGroup Consumer Finance + vn-202605-monthly</div>
+      </div>
+
+      <div class="action high">
+        <div class="action-title">3. FPT — IPS v2 §3.2 BREACH (-27%)</div>
+        Vượt cả ngưỡng cảnh báo (-10%) và hạ tỷ trọng (-15%). Bắt buộc: báo cáo BĐH + review luận điểm. Quyết định hold/cut.
+        <div class="action-meta">Owner: anh + BĐH • Deadline: T06.2026<br><strong>Sources:</strong> IPS v2 §3.2 (Max DD -15% bắt buộc rà soát) + §3.3 (Single stock cap 20%) + §10 (BĐH approval) + CFA L3 Path PM (stop-loss framework) + CFA L3 PC (concentration risk) + HDBVPB (banking peer beta) + vn-202605-monthly (VN IT sector) + BAOCAOTRIENVONG (forward outlook)</div>
+      </div>
+
+      <div class="action high">
+        <div class="action-title">4. Single stock concentration FPT 33% danh mục CP</div>
+        FPT chiếm 33% danh mục CP, vượt giới hạn IPS v2 §3.3 (≤20%). Nếu cut FPT giải quyết luôn vấn đề concentration.
+        <div class="action-meta">Owner: anh • Deadline: cùng action #3<br><strong>Sources:</strong> IPS v2 §3.3 (Single stock cap 20%) + CFA L3 PC (concentration risk HHI) + CFA L3 Path PM</div>
+      </div>
+    </div>
+
+    <div class="kanban-col med">
+      <h4>🟡 MEDIUM Priority (4)</h4>
+
+      <div class="action med">
+        <div class="action-title">5. Pool C 0% vs IPS v2 target 15% — Triển khai Quỹ M&A SAPP</div>
+        Gap ~29.24 tỷ (IPS v2 mới target 15% NAV, không phải 20%). Triển khai Quỹ M&A SAPP (kế hoạch IPS §12) — pipeline TT luyện thi, EdTech, Phòng khám/CĐHA.
+        <div class="action-meta">Owner: BĐH • Deadline: Q3.2026 setup<br><strong>Sources:</strong> IPS v2 §2 (Pool C 15% NAV) + §12 (Quỹ M&A 40-50 tỷ, SAPP góp 20 tỷ, M&A criteria) + CFA L3 Private Markets Pathway (PE/M&A framework) + CFA L3 Path PM + EY Doing Business (M&A FDI legal) + FiinGroup Consumer Finance (M&A sector targets) + Knowledge_Checklist Tier 1 (VPCA/KPMG/PwC pending download)</div>
+      </div>
+
+      <div class="action med">
+        <div class="action-title">6. Stocks underweight (3.36% NAV vs target 7.5% NAV per IPS v2)</div>
+        IPS v2 §2: Stocks_Self target 20% Pool B = 5% NAV, Stocks_Trust 10% Pool B = 2.5% NAV, total 7.5% NAV. Hiện chỉ 3.36%. Cần bổ sung ~7.4 tỷ. Review tăng ACB, TCB (đang lãi). Tránh tăng VNM.
+        <div class="action-meta">Owner: anh • Deadline: Q2-Q3.2026<br><strong>Sources:</strong> IPS v2 §2 (Pool B SAA) + §6.1 + CFA L3 AA (SAA) + HDBVPB (banking peer cho ACB+TCB) + vn-202605-monthly (VN equity outlook) + BAOCAOTRIENVONG</div>
+      </div>
+
+      <div class="action med">
+        <div class="action-title">7. TGCKH thực ra OVER (7.09% NAV vs IPS v2 target 2.5% NAV)</div>
+        IPS v2: TGCKH target 10% Pool B = 2.5% NAV. SAPP đang 7.09% → ACTUALLY OVER, không phải under. Nhưng 98.8% bị cầm cố. Khi BĐS tạo CF → tăng TGCKH không cầm cố để fix liquidity.
+        <div class="action-meta">Owner: anh • Deadline: ongoing<br><strong>Sources:</strong> IPS v2 §2 + §6.3 (Liquidity) + HDBVPB (lãi suất TGCKH) + vn-202605-monthly</div>
+      </div>
+
+      <div class="action med">
+        <div class="action-title">8. IPS v2 Liquidity policy interpretation</div>
+        Compliance check dùng "50% Pool B NET" cho 30d (= 36.05 tỷ), "30% Pool B NET" cho 7d (= 21.63 tỷ) — theo IPS v2 §6.3. Pool B NET = Pool B gross 88.94 − Nợ vay BĐS 16.83 = 72.10 tỷ.
+        <div class="action-meta">Owner: confirmed • <strong>Sources:</strong> IPS v2 §6.3 + Manifest v1.1 (interpretation locked)</div>
+      </div>
+    </div>
+
+    <div class="kanban-col low">
+      <h4>🔵 LOW Priority (5)</h4>
+
+      <div class="action low">
+        <div class="action-title">9. Bổ sung BĐS RE_08 hoặc bỏ slot</div>
+        Row trống RE_08 trong sheet RealEstate. Hoặc điền data BĐS mới, hoặc xóa slot để clean data.
+        <div class="action-meta">Owner: anh • Deadline: kỳ tới</div>
+      </div>
+
+      <div class="action low">
+        <div class="action-title">10. Điền Lease Income BDS</div>
+        Sheet 09_Lease_Income_BDS trống — chưa có giá thuê + cap rate. Cần data để tính yield BĐS.
+        <div class="action-meta">Owner: anh + kế toán BĐS • Deadline: kỳ tới</div>
+      </div>
+
+      <div class="action low">
+        <div class="action-title">11. Cập nhật Beta thực tế cho 6 mã CP</div>
+        Hiện em dùng beta ước tính. Cần pull từ FiinPro/Cafef. Sau khi có volatility history sẽ tính được Sharpe/Sortino.
+        <div class="action-meta">Owner: Claude search • Deadline: kỳ tới</div>
+      </div>
+
+      <div class="action low">
+        <div class="action-title">12. Counterparty diversification VPBank</div>
+        VPBank đang chiếm exposure lớn nhất cho cash (5.4 tỷ). Có thể phân tán sang 2-3 NH khác để giảm counterparty risk.
+        <div class="action-meta">Owner: anh • Deadline: review Q2</div>
+      </div>
+
+      <div class="action low">
+        <div class="action-title">13. Search benchmark mỗi kỳ</div>
+        Claude tự pull VN30, lãi suất BIG4, báo cáo Savills/CBRE mỗi kỳ. Đã set workflow trong Playbook v2.0.
+        <div class="action-meta">Owner: Claude • Deadline: ongoing</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== D14: Methodology ===================== -->
+<section id="d14" class="section">
+  <div class="section-header">
+    <span class="section-tag">D14 • TIER 4 GOVERNANCE</span>
+    <h2>Methodology & Data Sources</h2>
+    <div class="framework">Tham chiếu: GIPS standards transparency • CFA Ethics — Performance Presentation</div>
+  </div>
+
+  <h3 style="margin:0 0 10px;font-size:14px;">Công thức tính các chỉ số</h3>
+  <table>
+    <thead><tr><th>Chỉ số</th><th>Công thức</th><th>Đơn vị</th></tr></thead>
+    <tbody>
+      <tr><td>NAV</td><td>Tổng tài sản − Tổng nợ</td><td>tỷ VND</td></tr>
+      <tr><td>Business NET</td><td>(Doanh thu thực hiện × P/S) − Deferred Revenue</td><td>tỷ VND</td></tr>
+      <tr><td>Stocks P/L</td><td>(Giá TT − Giá vốn) × Số lượng</td><td>triệu VND</td></tr>
+      <tr><td>HHI</td><td>Σ wᵢ² × 10000 (w = market share)</td><td>không thứ nguyên</td></tr>
+      <tr><td>Beta danh mục</td><td>Σ (wᵢ × βᵢ) weighted by market value</td><td>không thứ nguyên</td></tr>
+      <tr><td>LTV</td><td>Loan / Property market value</td><td>%</td></tr>
+      <tr><td>LCR (Basel III adapt)</td><td>HQLA / Net Cash Outflows 30d</td><td>%</td></tr>
+      <tr><td>DSCR</td><td>Cash Flow before Debt Service / Debt Service</td><td>x (ratio)</td></tr>
+      <tr><td>Brinson-Fachler Allocation</td><td>Σᵢ (wᵢᴾ − wᵢᴮ) × (Rᵢᴮ − Rᴮ)</td><td>%</td></tr>
+      <tr><td>Brinson-Fachler Selection</td><td>Σᵢ wᵢᴮ × (Rᵢᴾ − Rᵢᴮ)</td><td>%</td></tr>
+      <tr><td>Sharpe Ratio</td><td>(Rₚ − R_f) / σₚ</td><td>không thứ nguyên</td></tr>
+      <tr><td>Sortino Ratio</td><td>(Rₚ − R_target) / σ_downside</td><td>không thứ nguyên</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">📚 KNOWLEDGE BASE — TOÀN BỘ 24 SOURCES (mọi advice phải reference comprehensive)</h3>
+
+  <h4 style="margin:10px 0 6px;color:#1F4E78;">🏛️ Policy & Framework (operational — reference mọi compliance)</h4>
+  <table style="margin-bottom:14px;">
+    <thead><tr><th>File</th><th>Vai trò</th></tr></thead>
+    <tbody>
+      <tr><td><strong>SAPP_Chinh sach Dau tu IPS 2026 v2.0</strong></td><td>IPS v2 — Pool A/B/C, 19 compliance rules, Quỹ M&A §12, CAGR 20%, Liquidity §6.3 (50% Pool B / 30% Pool B)</td></tr>
+      <tr><td>[KNOWLEDGE] Playbook v2.3</td><td>Workflow 5-phase + Nguyên tắc tư vấn comprehensive</td></tr>
+      <tr><td>[KNOWLEDGE] Prompt-Chain v2.1</td><td>7 chain interaction (A-G) + BƯỚC 0b</td></tr>
+      <tr><td>_Knowledge_Manifest v1.1</td><td>Registry + sources mapping examples</td></tr>
+      <tr><td>Knowledge_Checklist.md</td><td>Roadmap 50+ tài liệu cần download (Tier 1-3)</td></tr>
+    </tbody>
+  </table>
+
+  <h4 style="margin:10px 0 6px;color:#1F4E78;">🎓 CFA L3 Reference (10 files — theory cho mọi PM topic)</h4>
+  <table style="margin-bottom:14px;">
+    <thead><tr><th>File</th><th>Khi reference</th></tr></thead>
+    <tbody>
+      <tr><td>CFAI_CFA3_Path PM_Textbook</td><td><strong>MASTER PM Pathway</strong> — mọi PM topic</td></tr>
+      <tr><td>CFAI_CFA3_AA_Textbook</td><td>SAA/TAA/Rebalancing/MPT</td></tr>
+      <tr><td>CFAI_CFA3_PeM_Textbook</td><td>Performance: Brinson-Fachler, TWR, GIPS</td></tr>
+      <tr><td>CFAI_CFA3_PC_Textbook</td><td>Portfolio Construction, Risk budgeting</td></tr>
+      <tr><td>CFAI_CFA3_Der_Textbook</td><td>Derivatives (ít dùng)</td></tr>
+      <tr><td>CFAI_CFA3_Ethics_Textbook</td><td>Ethics & GIPS standards</td></tr>
+      <tr><td>2026_CFA_L3_Private Markets Pathway</td><td>PE/RE Private Markets</td></tr>
+      <tr><td>2026_CFA_L3_Private Wealth Pathway</td><td>Family office, liquidity mgmt</td></tr>
+      <tr><td>2026LevelIII CoreGlossary</td><td>Terminology tra cứu</td></tr>
+      <tr><td>2026LevelIII Portfolio Management PathwayGlossary</td><td>PM-specific glossary</td></tr>
+    </tbody>
+  </table>
+
+  <h4 style="margin:10px 0 6px;color:#1F4E78;">🇻🇳 Vietnam Market Reports (10 files — sector & macro context)</h4>
+  <table style="margin-bottom:14px;">
+    <thead><tr><th>File</th><th>Phân khúc</th><th>Liên quan SAPP</th></tr></thead>
+    <tbody>
+      <tr><td>26-insights-vietnam-south-industrial-park-Q1-2026</td><td>Savills KCN miền Nam Q1.2026</td><td>RE Industrial</td></tr>
+      <tr><td><strong>q1-2026-hanoi-marketbeat--vn-260129</strong></td><td><strong>C&W HN Q1.2026</strong> (Office/Retail/Resi/Industrial)</td><td>VLHNN_A_01 Hinode, VLHNN_A_02 TĐC ĐHQG</td></tr>
+      <tr><td><strong>q1-2026-hcmc-marketbeat-vn-260428</strong></td><td><strong>C&W HCM Q1.2026</strong> + Bình Dương + BR-VT</td><td>OPHCM Thủ Đức, OFHCM Bình Thạnh, APHCM Bason, APBDD Habitat</td></tr>
+      <tr><td><strong>bcptcm_21_19023_57</strong></td><td><strong>VCBS BĐS 2026 — Sàng lọc chu kỳ mới</strong></td><td>RE macro + tín dụng BĐS (ACB, TCB)</td></tr>
+      <tr><td>Doing Business in Vietnam - EY</td><td>EY Vietnam Business Environment</td><td>Pháp lý FDI/M&A/Tax — Quỹ M&A SAPP, exit BĐS</td></tr>
+      <tr><td><strong>HDBVPB_20260515153832</strong></td><td><strong>Báo cáo HDBank & VPBank 15/05/2026</strong></td><td><strong>Banking sector peer cho ACB, TCB</strong></td></tr>
+      <tr><td><strong>FiinGroup_Consumer Finance Market 1H2025</strong></td><td>Consumer Finance Market 1H2025</td><td>Banking/finance sector</td></tr>
+      <tr><td>BAOCAOTHITRUONG_20260516101621</td><td>Báo cáo thị trường 16/05/2026</td><td>Macro context</td></tr>
+      <tr><td>BAOCAOTRIENVONG_20260515155200</td><td>Triển vọng thị trường 15/05/2026</td><td>Forward outlook</td></tr>
+      <tr><td>vn-202605-monthly-report</td><td>Vietnam monthly T05.2026</td><td>Latest macro</td></tr>
+    </tbody>
+  </table>
+
+  <h4 style="margin:10px 0 6px;color:#1F4E78;">🏢 Internal SAPP (anh upload — em chưa nhận)</h4>
+  <table style="margin-bottom:14px;">
+    <thead><tr><th>File</th><th>Mục đích</th></tr></thead>
+    <tbody>
+      <tr><td>Internal/SAPP_FS_2024_audited.pdf</td><td>⏳ Báo cáo TC 2024 audited</td></tr>
+      <tr><td>Internal/SAPP_FS_2025_audited.pdf</td><td>⏳ Báo cáo TC 2025 audited</td></tr>
+      <tr><td>Internal/SAPP_BalanceSheet_2026-Q1.xlsx</td><td>⏳ Bảng cân đối Q1.2026</td></tr>
+      <tr><td>Internal/SAPP_Budget_2026.xlsx</td><td>⏳ Dự toán ngân sách 2026 (cho Cash Runway)</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Sources Confidence (real-time/external data)</h3>
+  <table>
+    <thead><tr><th>Lớp tài sản</th><th>Nguồn external</th><th>Confidence</th></tr></thead>
+    <tbody>
+      <tr><td>Business</td><td>Báo cáo kế toán SAPP nội bộ</td><td>High</td></tr>
+      <tr><td>Stocks giá TT</td><td>cafef.vn / vietstock.vn / HOSE</td><td>High</td></tr>
+      <tr><td>Stocks Beta</td><td>FiinPro (cần subscribe)</td><td>Low — đang ước tính</td></tr>
+      <tr><td>BĐS market</td><td>C&W HN+HCM (đã có), Savills KCN (đã có), VCBS BĐS (đã có)</td><td>High</td></tr>
+      <tr><td>BĐS định giá per property</td><td>Broker estimate, cần appraisal</td><td>Medium-Low</td></tr>
+      <tr><td>TGCKH lãi suất</td><td>SBV (cần allowlist)</td><td>Low — ước tính ~5%</td></tr>
+      <tr><td>Cash số dư</td><td>Sao kê NH</td><td>High</td></tr>
+      <tr><td>Liabilities</td><td>Hợp đồng vay (cần upload)</td><td>Medium</td></tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin:20px 0 10px;font-size:14px;">Giả định & Hạn chế</h3>
+  <table>
+    <thead><tr><th>Item</th><th>Giả định</th><th>Ảnh hưởng</th></tr></thead>
+    <tbody>
+      <tr><td>Business P/S</td><td>Dùng 1.7-2.0x từ eqvista (giáo dục VN)</td><td>Sensitivity ±20% tạo range ±10 tỷ NET</td></tr>
+      <tr><td>BĐS market value</td><td>Ước tính từ broker — không có appraisal chuyên nghiệp</td><td>Confidence medium-low, có thể ±10-15%</td></tr>
+      <tr><td>Beta CP</td><td>Dùng giá trị danh mục baseline ~1.0 cho mỗi mã</td><td>Cần verify với FiinPro</td></tr>
+      <tr><td>Other Liabilities</td><td>13.66 tỷ chưa identify nguồn</td><td>NAV có thể điều chỉnh ±13.66 tỷ</td></tr>
+      <tr><td>TWR, Sharpe, Volatility</td><td>Chưa có 12T history</td><td>PENDING — sẽ active khi có data</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ============ Disclaimer ============ -->
+<div class="disclaimer-final">
+  <strong>⚠️ DISCLAIMER:</strong> Đây là phân tích danh mục đầu tư cá nhân cho mục đích tham khảo nội bộ. KHÔNG phải tư vấn đầu tư chính thức từ tổ chức được cấp phép. Mọi giao dịch lớn cần được Ban điều hành phê duyệt theo IPS §10. Một số chỉ số (TWR, Brinson-Fachler, Sharpe, Volatility) đang ở trạng thái PENDING vì chưa đủ history nhiều kỳ. Số liệu Other Liabilities 13.66 tỷ đang chờ confirm — NAV có thể điều chỉnh.
+</div>
+
+<div class="footer">
+  <strong>SAPP Portfolio Dashboard — Institutional Grade</strong><br>
+  Kỳ báo cáo: Q1.2026 (chốt 2026-03-31) • Generated: 2026-05-25<br>
+  Frameworks: CFA L3 PM Pathway • Yale Endowment • Norway GPFG • CalPERS • ILPA • Basel III LCR • Brinson-Fachler<br>
+  Nguồn dữ liệu: SAPP_Portfolio_Master_2026-03_TEMPLATE.xlsx • SAPP Chính sách Đầu tư (IPS) 2026 v2.0<br>
+  <strong>Trợ lý quản lý danh mục:</strong> Claude (Anthropic) — anhth@sapp.edu.vn
+</div>
+
+</main>
+</div>
+
+<!-- ============ CHART SCRIPTS ============ -->
+<script>
+const colors = {primary:'#1F4E78', light:'#2E75B6', ok:'#10B981', warn:'#F59E0B', danger:'#DC2626', neutral:'#6B7280'};
+const palette = ['#1F4E78','#2E75B6','#10B981','#F59E0B','#DC2626','#8B5CF6','#06B6D4','#EC4899'];
+
+// D1 — NAV Evolution (placeholder)
+new Chart(document.getElementById('navEvolution'), {
+  type:'line',
+  data:{
+    labels:['Q1.2026','T04.2026','T05.2026','Q2.2026','Q3.2026','Q4.2026'],
+    datasets:[{
+      label:'NAV (tỷ)', data:[164.42, null, null, null, null, null],
+      borderColor:colors.primary, backgroundColor:'rgba(31,78,120,0.1)',
+      fill:true, tension:0.3, pointRadius:5
+    },{
+      label:'CAGR 15% target', data:[164.42, 166.46, 168.5, 170.5, 178.6, 187.1],
+      borderColor:colors.warn, borderDash:[5,5], pointRadius:0, fill:false
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top'}}}
+});
+
+// D1 — Heat Map (matrix-like bars)
+new Chart(document.getElementById('heatMap'), {
+  type:'bar',
+  data:{
+    labels:['Business','BĐS','Stocks','TGCKH','PE','Cash'],
+    datasets:[{
+      label:'Unrealized P/L (triệu VND)',
+      data:[null, 7618, -942, null, null, null],
+      backgroundColor:ctx=>{const v=ctx.parsed.y; return v===null?'#E5E7EB':v>0?colors.ok:colors.danger;}
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{title:{display:true,text:'triệu VND'}}}}
+});
+
+// D2 — Allocation Compare (current vs SAA)
+new Chart(document.getElementById('allocCompare'), {
+  type:'bar',
+  data:{
+    labels:['Pool A','Pool B','Pool C','Buffer'],
+    datasets:[
+      {label:'Hiện tại %', data:[3.36, 35.18, 7.09, 0, 3.20], backgroundColor:colors.primary},
+      {label:'SAA Target %', data:[10, 35, 10, 20, 2], backgroundColor:colors.warn}
+    ]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top'}}, scales:{y:{title:{display:true,text:'% NAV'}}}}
+});
+
+// D2 — Active Weight
+new Chart(document.getElementById('activeWeight'), {
+  type:'bar',
+  data:{
+    labels:['Pool A','Pool B','Pool C','Buffer'],
+    datasets:[{
+      label:'Active Weight (pp)',
+      data:[-3.99, +15.49, -10.00, +1.50],
+      backgroundColor:ctx=>ctx.parsed.x<0?colors.danger:colors.ok
+    }]
+  },
+  options:{indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}}
+});
+
+// D4 — Brinson placeholder
+new Chart(document.getElementById('brinsonChart'), {
+  type:'bar',
+  data:{
+    labels:['Stocks','BĐS','TGCKH','PE','Cash','Total'],
+    datasets:[
+      {label:'Allocation Effect', data:[0,0,0,0,0,0], backgroundColor:colors.primary},
+      {label:'Selection Effect', data:[0,0,0,0,0,0], backgroundColor:colors.light},
+      {label:'Interaction', data:[0,0,0,0,0,0], backgroundColor:colors.ok}
+    ]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top'}, title:{display:true, text:'Sẽ điền khi có ≥2 kỳ history'}}, scales:{y:{title:{display:true,text:'%'}}, x:{stacked:false}}}
+});
+
+// D5 — HHI
+new Chart(document.getElementById('hhiChart'), {
+  type:'bar',
+  data:{
+    labels:['HHI Stocks','HHI BĐS (geo)','HHI Business','HHI Total'],
+    datasets:[{
+      data:[3468, 3712, 2740, 3468],
+      backgroundColor:ctx=>{const v=ctx.parsed.y; return v<1500?colors.ok:v<2500?colors.warn:colors.danger;}
+    }]
+  },
+  options:{indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, title:{display:true,text:'Threshold: <1500 OK, 1500-2500 Moderate, >2500 Concentrated'}}}
+});
+
+// D5 — Risk Radar
+new Chart(document.getElementById('riskRadar'), {
+  type:'radar',
+  data:{
+    labels:['Volatility','Liquidity Risk','Concentration','Leverage','MaxDD'],
+    datasets:[
+      {label:'Stocks', data:[7,2,8,1,9], backgroundColor:'rgba(220,38,38,0.2)', borderColor:colors.danger},
+      {label:'BĐS', data:[4,9,6,5,3], backgroundColor:'rgba(245,158,11,0.2)', borderColor:colors.warn},
+      {label:'TGCKH', data:[1,8,3,7,1], backgroundColor:'rgba(31,78,120,0.2)', borderColor:colors.primary}
+    ]
+  },
+  options:{responsive:true, maintainAspectRatio:false, scales:{r:{min:0,max:10}}}
+});
+
+// D6 — Liquidity Waterfall
+new Chart(document.getElementById('liqWaterfall'), {
+  type:'bar',
+  data:{
+    labels:['T1 Instant','T2 Short(7d)','T3 Medium(30d)','T4 Long(90d)','T5 Illiquid'],
+    datasets:[
+      {label:'Cumulative (tỷ)', data:[6.23, 12.78, 12.94, 12.94, 164.42], backgroundColor:colors.primary},
+      {label:'IPS v2 Required (50% Pool B NET)', data:[null, 21.63, 36.05, null, null], backgroundColor:colors.warn}
+    ]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'top'}}}
+});
+
+// D6 — LCR Gauge (doughnut-style)
+new Chart(document.getElementById('lcrGauge'), {
+  type:'doughnut',
+  data:{
+    labels:['LCR (31%)','Gap to 100%'],
+    datasets:[{
+      data:[31, 69],
+      backgroundColor:[colors.danger, '#E5E7EB']
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, rotation:-90, circumference:180, cutout:'75%', plugins:{legend:{position:'bottom'}, title:{display:true, text:'LCR ~ 29% Pool B (vs IPS v2 yêu cầu ≥50% Pool B 30d)'}}}
+});
+
+// D7 — Bank Exposure
+new Chart(document.getElementById('bankExposure'), {
+  type:'doughnut',
+  data:{
+    labels:['VPBank','MB Bank','ACB','BIDV','Tiền mặt'],
+    datasets:[{
+      data:[5.40, 0.35, 0.49, 0.09, 0.25],
+      backgroundColor:palette
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'right'}}}
+});
+
+// D7 — Geographic concentration
+new Chart(document.getElementById('geoConc'), {
+  type:'pie',
+  data:{
+    labels:['TP.HCM','Hà Nội','Đà Nẵng','Bình Dương'],
+    datasets:[{
+      data:[35.62, 23.45, 6.60, 2.89],
+      backgroundColor:palette
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'right'}}}
+});
+
+// D8 — Brand bar
+new Chart(document.getElementById('brandBar'), {
+  type:'bar',
+  data:{
+    labels:['CFA','ACCA','B2B','CMA','CGMA','IFRS','SC.CMA'],
+    datasets:[{label:'NET Value (tỷ)', data:[30.25, 24.47, 22.86, 11.04, 6.19, 2.95, 1.95], backgroundColor:colors.primary}]
+  },
+  options:{indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}}
+});
+
+// D8 — P/S Sensitivity
+new Chart(document.getElementById('psSensitivity'), {
+  type:'line',
+  data:{
+    labels:['-20%','-10%','Current','+10%','+20%'],
+    datasets:[{
+      label:'NET Value (tỷ)', data:[80.20, 89.97, 99.75, 109.52, 119.30],
+      borderColor:colors.warn, backgroundColor:'rgba(245,158,11,0.1)', fill:true, tension:0.2
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}}
+});
+
+// D9 — Stock P/L
+new Chart(document.getElementById('stockPL'), {
+  type:'bar',
+  data:{
+    labels:['ACB','FPT','HPG','TCB','VNM','F-Stock'],
+    datasets:[{
+      data:[38.99, -26.99, -6.56, 27.65, -8.07, -11.65],
+      backgroundColor:ctx=>ctx.parsed.y>=0?colors.ok:colors.danger
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{title:{display:true,text:'P/L %'}}}}
+});
+
+// D9 — Sector Pie
+new Chart(document.getElementById('sectorPie'), {
+  type:'pie',
+  data:{
+    labels:['Banking','IT','Utilities','Industrials','Entrustment'],
+    datasets:[{
+      data:[0.86, 2.18, 2.14, 0.48, 0.88],
+      backgroundColor:palette
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'right'}}}
+});
+
+// D10 — RE Perf
+new Chart(document.getElementById('rePerf'), {
+  type:'bar',
+  data:{
+    labels:['Lakeside ĐN','Habitat BD','Bình Thạnh','Hinode HD','Bason','TĐC ĐHQG','Thủ Đức'],
+    datasets:[{
+      data:[38.16, 42.12, 13.86, 7.44, 5.98, 5.07, 1.63],
+      backgroundColor:colors.ok
+    }]
+  },
+  options:{indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{title:{display:true,text:'P/L %'}}}}
+});
+
+// D10 — LTV
+new Chart(document.getElementById('reLTV'), {
+  type:'bar',
+  data:{
+    labels:['Thủ Đức','TĐC ĐHQG','Bình Thạnh','Hinode','Lakeside','Habitat','Bason'],
+    datasets:[{
+      data:[55.1, 47.6, 16.9, 0, 0, 0, 0],
+      backgroundColor:ctx=>{const v=ctx.parsed.x; return v>50?colors.danger:v>30?colors.warn:colors.ok;}
+    }]
+  },
+  options:{indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, title:{display:true, text:'LTV % — Cảnh báo >50%'}}, scales:{x:{title:{display:true,text:'LTV %'}}}}
+});
+
+// D11 — Maturity Ladder
+new Chart(document.getElementById('maturityLadder'), {
+  type:'bar',
+  data:{
+    labels:['Đáo hạn rồi','Q1.2026','Q2.2026','Q3.2026','Q4.2026','2027+'],
+    datasets:[{
+      label:'Gốc (tỷ)', data:[0, 0, 0.13, 0, 7.70, 6.00],
+      backgroundColor:colors.primary
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, title:{display:true, text:'TGCKH theo kỳ đáo hạn'}}}
+});
+
+// D11 — Encumbrance
+new Chart(document.getElementById('encumbrance'), {
+  type:'doughnut',
+  data:{
+    labels:['Cầm cố/Thế chấp','Khả dụng'],
+    datasets:[{
+      data:[13.66, 0.16],
+      backgroundColor:[colors.danger, colors.ok]
+    }]
+  },
+  options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom'}, title:{display:true, text:'TGCKH — chỉ 0.16/13.83 tỷ khả dụng (1.2%)'}}}
+});
+
+// D1 — CAGR Gauge (semi-circle doughnut)
+new Chart(document.getElementById('cagrGauge'), {
+  type:'doughnut',
+  data:{
+    labels:['Đạt được (7.58%)','Còn cách target (7.42%)'],
+    datasets:[{
+      data:[7.58, 7.42],
+      backgroundColor:[colors.warn, '#E5E7EB'],
+      borderWidth:0
+    }]
+  },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    rotation:-90, circumference:180, cutout:'70%',
+    plugins:{legend:{position:'bottom'}, title:{display:true, text:'CAGR 7.58% / Target 15% — 50.5% progress'}}
+  }
+});
+
+// D2 — Bullet Chart (custom using horizontal bar)
+new Chart(document.getElementById('bulletChart'), {
+  type:'bar',
+  data:{
+    labels:['Pool A','Pool B','Pool C','Buffer'],
+    datasets:[
+      // Tolerance band (range min to max)
+      {label:'Tolerance Min', data:[5, 30, 15, 15, 0], backgroundColor:'rgba(229,231,235,0.6)', stack:'band', barPercentage:0.6},
+      {label:'Tolerance Band', data:[10, 10, 5, 10, 20], backgroundColor:'rgba(16,185,129,0.2)', stack:'band', barPercentage:0.6},
+      // SAA Target marker
+      {type:'scatter', label:'SAA Target', data:[{x:10,y:0},{x:35,y:1},{x:17.5,y:2},{x:20,y:3},{x:2,y:4}], backgroundColor:colors.primary, pointStyle:'rect', radius:8, borderColor:colors.primary},
+      // TAA marker
+      {type:'scatter', label:'TAA', data:[{x:8,y:0},{x:35,y:1},{x:15,y:2},{x:15,y:3},{x:2,y:4}], backgroundColor:colors.warn, pointStyle:'triangle', radius:8, borderColor:colors.warn},
+      // Actual marker (diamond)
+      {type:'scatter', label:'Actual', data:[{x:3.36,y:0},{x:35.18,y:1},{x:7.09,y:2},{x:0,y:3},{x:3.20,y:4}], backgroundColor:colors.danger, pointStyle:'rectRot', radius:10, borderColor:colors.danger}
+    ]
+  },
+  options:{
+    indexAxis:'y', responsive:true, maintainAspectRatio:false,
+    plugins:{legend:{position:'top'}, title:{display:true, text:'◆ Actual • ▮ SAA Target • ▲ TAA • Vùng xanh = Tolerance Band'}},
+    scales:{x:{stacked:true, title:{display:true,text:'% NAV-Investment'}, max:55}, y:{stacked:true}}
+  }
+});
+
+// D4 — Asset Class Contribution Waterfall
+new Chart(document.getElementById('contributionWaterfall'), {
+  type:'bar',
+  data:{
+    labels:['Baseline','Business','BĐS','Stocks','TGCKH','PE','Cash','Total CAGR'],
+    datasets:[
+      // Invisible "base" to create waterfall floating effect
+      {label:'Base', data:[0, 0, 4.5, 4.1, 4.2, 4.2, 4.2, 0], backgroundColor:'rgba(0,0,0,0)', stack:'wf'},
+      // Positive contribution
+      {label:'+ Contribution', data:[0, 4.5, 0, 0, 0, 0, 0.1, 7.58], backgroundColor:colors.ok, stack:'wf'},
+      // Negative contribution
+      {label:'- Contribution', data:[0, 0, 0, -0.4, 0, 0, 0, 0], backgroundColor:colors.danger, stack:'wf'},
+      // Baseline marker (start and total)
+      {label:'Baseline/Total', data:[0, 0, 0, 0, 0, 0, 0, 0], backgroundColor:colors.primary, stack:'wf'}
+    ]
+  },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    plugins:{legend:{position:'top'}, title:{display:true, text:'Waterfall — đóng góp từng lớp vào CAGR 7.58%'}},
+    scales:{x:{stacked:true}, y:{stacked:true, title:{display:true,text:'% CAGR contribution'}}}
+  }
+});
+
+// D6 — Cash Flow Forecast 12 months
+new Chart(document.getElementById('cashFlowForecast'), {
+  type:'line',
+  data:{
+    labels:['T04','T05','T06','T07','T08','T09','T10','T11','T12','T01.27','T02.27','T03.27'],
+    datasets:[
+      {label:'Cash In (Business + Lease + Lãi)', data:[8.5,9.0,9.2,8.8,8.5,8.7,9.0,9.5,9.8,10.0,9.5,9.2], borderColor:colors.ok, backgroundColor:'rgba(16,185,129,0.1)', fill:true, tension:0.3},
+      {label:'Cash Out (CP vận hành + Trả nợ)', data:[7.0,7.2,7.1,7.3,7.5,7.4,7.6,7.8,8.0,8.5,8.2,8.0], borderColor:colors.danger, backgroundColor:'rgba(220,38,38,0.1)', fill:true, tension:0.3},
+      {label:'Net Cash Flow', data:[1.5,1.8,2.1,1.5,1.0,1.3,1.4,1.7,1.8,1.5,1.3,1.2], borderColor:colors.primary, borderWidth:3, fill:false, tension:0.3}
+    ]
+  },
+  options:{
+    responsive:true, maintainAspectRatio:false,
+    plugins:{legend:{position:'top'}, title:{display:true, text:'12-Month Forecast (tỷ VND) — ESTIMATE từ Q1 baseline'}},
+    scales:{y:{title:{display:true,text:'tỷ VND/tháng'}}}
+  }
+});
+</script>
+</body>
+</html>
